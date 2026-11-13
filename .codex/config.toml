@@ -1,0 +1,4 @@
+# Keep project configuration minimal. Validate option names against the
+# installed Codex version before adding further settings.
+[agents]
+max_threads = 3

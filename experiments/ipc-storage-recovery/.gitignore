@@ -1,0 +1,7 @@
+.python/
+.venv/
+.uv-cache/
+.cargo-home/
+target/
+runs/
+results.json

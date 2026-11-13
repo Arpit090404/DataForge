@@ -1,0 +1,8 @@
+.venv/
+.uv-cache/
+.dotnet-home/
+.nuget/
+bin/
+obj/
+runs/
+results.json
