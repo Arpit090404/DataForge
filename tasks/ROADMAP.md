@@ -9,7 +9,7 @@ Instructions, specifications, ADRs, and Codex subagents. No product functionalit
 
 P0 means initial-release scope across Milestones 1–3, not Milestone 1 scope. Milestone 1 is local-only and has no ACP dependency.
 
-Before Milestone 1 begins: review proposed ADRs 0005–0009 and the IPC/data-registration contracts; prove that application-defined templates reject injected SQL/identifiers and enforce registered representations and limits; prove worker/IPC lifecycle and storage/recovery behavior; decide supported Windows versions and required local worker controls. General submitted SQL is deferred. No implementation begins until the architecture is approved.
+Before the **full** Milestone 1 analytics/worker scope: review proposed ADRs 0005–0009 and the IPC/data-registration contracts; prove that application-defined templates reject injected SQL/identifiers and enforce registered representations and limits; prove worker/IPC lifecycle and host-owned storage/recovery behavior, including a surviving out-of-job process denied authoritative writes and concurrent-host exclusion; decide supported Windows/filesystem versions and required local worker controls. The worker-fencing spike did not satisfy this gate; complete the prepared `STORAGE_OWNERSHIP_SPIKE_PLAN.md` and approve the resulting design first. General submitted SQL is deferred. A user-authorized local CSV-only vertical slice may proceed without the worker, ACP, or DuckDB; it does not satisfy those remaining gates.
 
 Before Milestone 2 begins: prove actual Codex/ACP adapter compatibility, shell/file capability enforcement including required Windows controls, provider disclosure, and MCP authorization. Failed proof blocks agent integration, not local-only Milestone 1 functionality.
 

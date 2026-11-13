@@ -15,6 +15,7 @@ secrets/
 .local/
 # Node
 node_modules/
+.npm-cache/
 dist/
 build/
 coverage/
@@ -24,6 +25,7 @@ coverage/
 # Rust / Tauri
 target/
 src-tauri/target/
+apps/desktop/src-tauri/gen/
 *.rs.bk
 # Python
 __pycache__/

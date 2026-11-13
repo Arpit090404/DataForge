@@ -8,7 +8,7 @@ Proposed ADRs 0005–0008 define the initial SQL, agent, disclosure, and Python 
 Treat generated Python/SQL, imported files, tool arguments, and artifact metadata as untrusted. Protect credentials and project boundaries. Assume accidental over-approval is possible.
 
 ## Trusted worker boundary
-The analytics worker runs application-owned, reviewed Python code for ingestion, parsing, profiling, statistics, and DuckDB operations. It does not run agent/user Python. Input files remain untrusted; parsers and native libraries can crash, exhaust resources, or be vulnerable to compromise. The worker is supervised with bounded inputs, resource controls, and cancellation, but an ordinary subprocess or Job Object does not isolate its filesystem or network rights. Host-side path authorization and a minimal environment reduce exposure without containing a compromised parser. Proposed restricted tokens, AppContainer, ACLs, or network controls remain unverified until demonstrated on supported Windows configurations. Do not describe the trusted worker as sandboxed.
+The analytics worker runs application-owned, reviewed Python code for parsing, profiling, statistics, and result shaping. It does not run agent/user Python or own authoritative DuckDB/SQLite/artifact writes under the proposed ADR 0009 amendment. Input files remain untrusted; parsers and native libraries can crash, exhaust resources, or be vulnerable to compromise. The host brokers approved input and owns project mutations. A process with the same unrestricted user identity can still open project files by path, so IPC discipline, a minimal environment, and a Job Object do not enforce this boundary. AppContainer or restricted-token/ACL enforcement, including out-of-job descendants and inherited handles, remains unverified until the [storage-ownership spike](STORAGE_OWNERSHIP_SPIKE_PLAN.md) passes on supported configurations. Do not describe the worker as sandboxed.
 
 ## Objectives
 Preserve source data; restrict execution to approved resources; prevent secret leakage; make network access explicit; bound CPU, memory, time, output, and disk; require approval for destructive operations; enforce permissions in host/runtime.
@@ -20,10 +20,10 @@ Reading registered datasets/artifacts; writing derived artifacts; SQL execution;
 A process boundary is not a security sandbox. ADR 0008 compares Windows restricted tokens, AppContainer, Job Objects, and Windows Sandbox and proposes deferring arbitrary Python. Job Objects help manage lifetime/resources but do not alone isolate filesystem or network. Document actual guarantees before adding executable code support.
 
 ## Filesystem
-Grant only approved project/input paths. Canonicalize paths and defend against traversal and reparse-point escapes. Do not trust agent path strings. Keep temporary directories separate. Do not expose home directories, browser profiles, SSH keys, or unrelated files. Prefer host-mediated artifact writes.
+The host alone opens approved source/project paths and writes authoritative storage; broker input bytes to the worker and receive bounded output through IPC. Canonicalize paths and defend against traversal, reparse points, hard links, and swapped directory/file identities. Do not trust agent or worker path strings. Keep worker scratch outside the project authority tree; never promote a worker-writable file by rename. Do not expose home directories, browser profiles, SSH keys, or unrelated files. The OS must deny the worker and any escaped process project write access and writable-handle inheritance; this is a release gate, not an implemented guarantee.
 
 ## Network
-Default analytics operations must not use network features. Remote database access is explicit and separate. Without tested OS controls, this is application policy, not a guarantee that a compromised trusted worker cannot reach the network. Arbitrary generated Python remains deferred. Disclose when provider/remote connections require data to leave the device.
+Default analytics operations must not use network features. Remote database access is explicit and separate. Without tested OS controls, this is application policy, not a guarantee that a compromised trusted worker cannot reach the network or unrelated user files. The proposed AppContainer worker would receive no network capability, but actual Python/broker behavior must be tested. Arbitrary generated Python remains deferred. Disclose when provider/remote connections require data to leave the device.
 
 ## Secrets
 Use OS secure storage. Separate credential references from metadata. Redact secrets from logs, prompts, artifacts, and crash reports. Do not pass all host environment variables to generated code or put secrets in command-line arguments.
@@ -35,4 +35,4 @@ Set configurable wall-time, memory/CPU/process, output, temporary disk, query-ro
 Show action, files/datasets/connections, read/write effects, network use, output location, and reversibility. Avoid vague approval prompts.
 
 ## Release gate
-Do not advertise Python execution as sandboxed until filesystem, network, process, and resource boundaries are tested on supported Windows versions.
+Do not advertise Python execution as sandboxed until filesystem, network, process, and resource boundaries are tested on supported Windows versions. Do not start storage reconciliation if exclusive host ownership or the worker's lack of authoritative write rights is unproved or fails; Job membership alone does not satisfy this condition.

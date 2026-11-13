@@ -66,6 +66,11 @@ def case(name, worker_mode, abrupt, race=False):
             wait_file(base / 'child_in_job.txt')
             wait_file(base / 'child_ready')
             wait_file(base / 'child_ticks.log')
+            start_ticks = time.monotonic()
+            while not (base / 'child_ticks.log').read_text():
+                if time.monotonic() - start_ticks > 5:
+                    raise RuntimeError('child made no ticks')
+                time.sleep(0.01)
             start_manifest = time.monotonic()
             while read_ownership(base / 'ownership.json')['Descendant'] is None:
                 if time.monotonic() - start_manifest > 5:
@@ -176,3 +181,4 @@ tests.append({'id':'stale_response_model', 'status':'pass' if outcomes == [False
 RESULTS.write_text(json.dumps({'tests':tests, 'summary':{'pass':sum(t['status']=='pass' for t in tests),
                    'fail':sum(t['status']=='fail' for t in tests)}},indent=2))
 print(json.dumps({'pass':sum(t['status']=='pass' for t in tests),'fail':sum(t['status']=='fail' for t in tests)}))
+sys.exit(1 if any(t['status'] != 'pass' for t in tests) else 0)

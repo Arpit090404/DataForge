@@ -1,5 +1,7 @@
 # Milestone 1 — Desktop foundation
 
+**Implementation status:** A user-authorized local CSV-only vertical slice is implemented. It does not claim completion of this milestone's DuckDB, worker/IPC, multi-format, or recovery acceptance criteria.
+
 ## Goal
 A Windows desktop shell where users create projects, register local files, inspect datasets, and use bounded application-defined analytical operations without an agent.
 
@@ -7,7 +9,7 @@ A Windows desktop shell where users create projects, register local files, inspe
 Initialize Tauri 2/React/TypeScript; implement approved layout and design tokens; project persistence; register CSV/XLSX/Parquet/JSON; bounded inspection and application-defined DuckDB query templates; explicit empty/loading/error states; logging/diagnostics. No SQL text entry point.
 
 ## Dependencies
-Architecture approval of ADRs 0005–0009; template boundary, worker/IPC lifecycle, and storage/recovery proofs; supported Windows compatibility decision; selected local toolchain/dependency versions; project storage layout and initial migration. General-SQL and ACP proofs are later gates, not Milestone 1 dependencies.
+Architecture approval of ADRs 0005–0009 including the host-owned storage amendment; template boundary, worker/IPC lifecycle, and storage-ownership/recovery proofs from `STORAGE_OWNERSHIP_SPIKE_PLAN.md`; supported Windows/filesystem compatibility decision; selected local toolchain/dependency versions; project storage layout and initial migration. The old-worker Job Object result alone does not clear this gate. General-SQL and ACP proofs are later gates, not Milestone 1 dependencies.
 
 ## Acceptance
 1. App launches on supported Windows dev environment.
@@ -20,7 +22,7 @@ Architecture approval of ADRs 0005–0009; template boundary, worker/IPC lifecyc
 8. Inspector collapses and panels resize where supported.
 9. Errors are actionable.
 10. Restart preserves completed state, marks uncertain work interrupted, and never silently retries it.
-11. IPC framing, oversized input, cancellation, worker crash, and recovery pass Windows integration tests.
+11. IPC framing/chunk integrity, oversized input, cancellation, worker crash, host-owned recovery, surviving out-of-job worker write denial, exclusive concurrent-host ownership, and repeated reconciliation pass Windows integration tests on supported configurations. Recovery blocks if the worker's lack of authoritative write rights cannot be established.
 12. Every analytical operation records its template/version, validated parameter values or protected references, representation/source fingerprint, engine/materializer versions, limits, status, timing, and output hashes. Row, byte, and execution limits are tested, and source hashes remain unchanged.
 
 ## Tests

@@ -18,7 +18,7 @@ An external reference is checked when opened and before new inspection/materiali
 
 ## Catalog binding
 
-Rust maps IDs to authorized source registrations and versioned analytical representations. Trusted ingestion resolves source identity and creates a representation only when needed for an application-defined analytical operation. App-created table/view names are generated from IDs, not user labels. Template execution receives representation/catalog IDs, never source paths or caller-supplied SQL. Binding is restricted to authorized representation relations; a caller cannot register new files, refer to filesystem paths, or attach databases through a template. Refresh does not silently change the inputs of a recorded execution.
+Rust maps IDs to authorized source registrations and versioned analytical representations. The host opens and verifies a source, brokers bounded content to trusted parsing/ingestion code, and creates any DuckDB representation itself only when needed for an application-defined analytical operation. The worker receives no writable project path or DuckDB handle. App-created table/view names are generated from IDs, not user labels. Template execution receives representation/catalog IDs, never source paths or caller-supplied SQL. Binding is restricted to authorized representation relations; a caller cannot register new files, refer to filesystem paths, or attach databases through a template. Refresh does not silently change the inputs of a recorded execution. See `STORAGE_OWNERSHIP_DESIGN.md` for the unproved Windows access boundary.
 
 ## Limits and disclosure
 
