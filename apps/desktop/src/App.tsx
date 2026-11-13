@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
+import NotebookWorkspace from './Notebook';
 import {
   Activity, Archive, ArrowRight, ChevronDown, Download,
   ChevronRight, CircleAlert, Database, FilePlus2, FileSpreadsheet, FolderOpen,
@@ -88,6 +89,13 @@ export default function App() {
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [inspectedExecution, setInspectedExecution] = useState<Execution | null>(null);
   const [mode, setMode] = useState<Mode>('Chat');
+  const [notebookDirty, setNotebookDirty] = useState(false);
+  const [projectSession, setProjectSession] = useState(0);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (notebookDirty) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [notebookDirty]);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -97,6 +105,8 @@ export default function App() {
 
   function activate(state: ProjectState) {
     requestSerial.current += 1;
+    setNotebookDirty(false);
+    setProjectSession(value => value + 1);
     setProject(state.project);
     setDatasets(state.datasets);
     setSelectedId(null);
@@ -113,6 +123,7 @@ export default function App() {
   }
 
   async function openProject() {
+    if (notebookDirty && !window.confirm('Discard unsaved notebook edits and open another project?')) return;
     setError(null);
     try {
       const path = await open({ directory: true, multiple: false, title: 'Open a DataForge project folder' });
@@ -179,7 +190,7 @@ export default function App() {
     <header className="topbar">
       <div className="brand"><div className="brand-mark"><span/><span/><span/><span/></div><span>DataForge</span><span className="brand-divider"/><span className="app-kind">WORKSPACE</span></div>
       <div className="top-center"><span className="project-indicator"/><span className="top-project-name">{project?.name ?? 'No project open'}</span>{project && <ChevronDown size={13} className="muted-icon"/>}</div>
-      <div className="top-actions"><button className="top-link" onClick={() => setShowCreate(true)}>New project</button><button className="top-link" onClick={openProject}>Open project</button><span className="top-separator"/><IconButton label={inspectorOpen ? 'Hide inspector' : 'Show inspector'} onClick={() => setInspectorOpen(!inspectorOpen)}>{inspectorOpen ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}</IconButton></div>
+      <div className="top-actions"><button className="top-link" onClick={() => { if (!notebookDirty || window.confirm('Discard unsaved notebook edits and create another project?')) setShowCreate(true); }}>New project</button><button className="top-link" onClick={openProject}>Open project</button><span className="top-separator"/><IconButton label={inspectorOpen ? 'Hide inspector' : 'Show inspector'} onClick={() => setInspectorOpen(!inspectorOpen)}>{inspectorOpen ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}</IconButton></div>
     </header>
     <div className={`body-grid ${inspectorOpen ? '' : 'inspector-hidden'}`}>
       <aside className="left-sidebar" aria-label="Workspace navigation">
@@ -204,7 +215,8 @@ export default function App() {
         <div className="workspace-content">
           {!project ? <div className="welcome-state"><div className="welcome-icon"><Table2 size={29}/></div><span className="eyebrow">LOCAL DATA WORKSPACE</span><h1>Start with a project.</h1><p>Create a space for your sources and analysis, or reopen one you already have. Everything in this slice runs locally.</p><div className="welcome-actions"><Button variant="primary" onClick={() => setShowCreate(true)}><Plus size={16}/> Create project</Button><Button variant="secondary" onClick={openProject}><FolderOpen size={16}/> Open existing</Button></div><div className="welcome-note"><span>01 &nbsp; Create a project</span><span>02 &nbsp; Register a CSV</span><span>03 &nbsp; Inspect your data</span></div></div>
           : selected ? <><DatasetWorkspace dataset={selected} inspection={inspection} busy={busy} onRefresh={() => selectDataset(selected.id)} />{inspection && <AnalyticsPanel key={selected.id} dataset={selected} columns={inspection.columns} onSelectExecution={setInspectedExecution} />}</>
-          : <ModeEmpty mode={mode} onAddSource={registerCsv} hasSources={datasets.length > 0} />}
+          : mode !== 'Notebook' ? <ModeEmpty mode={mode} onAddSource={registerCsv} hasSources={datasets.length > 0} /> : null}
+          {project && <div hidden={!!selected || mode !== 'Notebook'}><NotebookWorkspace key={projectSession} active={!selected && mode === 'Notebook'} onDirtyChange={setNotebookDirty} /></div>}
         </div>
         <div className="composer"><div className="composer-box"><div className="composer-heading"><MessageSquare size={14}/> Agent workspace unavailable</div><div className="composer-row"><span>Connect an agent in a later release to investigate with chat.</span><button disabled aria-label="Send unavailable"><ArrowRight size={16}/></button></div></div><div className="composer-note">No data is sent to an AI provider in this version.</div></div>
       </main>

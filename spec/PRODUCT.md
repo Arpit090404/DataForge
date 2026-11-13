@@ -36,4 +36,4 @@ No model training, subscription/billing management, cloud sync, team collaborati
 A new user can create a project and inspect data; an investigation can complete multiple visible steps; metrics trace to executions and artifacts; cancellation and restart recovery work; source data remains unchanged; UI stays responsive; benchmark questions demonstrate analytical correctness.
 
 ## Open questions
-Choose first remote connector for a later release; decide initial Notebook editability; prioritize export formats beyond HTML; establish practical limits on 16 GB Windows hardware; define provider re-authentication UX; approve or revise ADRs 0005–0009.
+Choose first remote connector for a later release; prioritize export formats beyond HTML; establish practical limits on 16 GB Windows hardware; define provider re-authentication UX; approve or revise ADRs 0005–0009.

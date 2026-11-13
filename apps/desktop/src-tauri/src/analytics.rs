@@ -404,6 +404,50 @@ pub(super) fn list_executions_inner(project: &Path) -> Result<Vec<Execution>> {
         duckdb_version:r.get(9)?,source_fingerprint:r.get(10)? })).map_err(|_| analytics_error())?;
     entries.collect::<std::result::Result<Vec<_>,_>>().map_err(|_| analytics_error())
 }
+pub(super) fn get_execution_result_inner(project: &Path, id: &str, control: &AnalyticsControl) -> Result<AnalyticsResult> {
+    let unavailable = || error("result_unavailable", "The saved result is unavailable because its execution or pinned representation cannot be replayed.");
+    let metadata = db(project)?;
+    let (execution, table, schema, representation_version): (Execution, String, String, String) = metadata.query_row(
+        "SELECT e.id,e.dataset_id,e.operation_type,e.parameters,e.started_at,e.completed_at,e.status,e.result_row_count,e.error_summary,e.duckdb_version,e.source_fingerprint,r.table_name,r.schema_json,r.duckdb_version
+         FROM executions e JOIN representations r ON r.id=e.representation_id AND r.dataset_id=e.dataset_id AND r.source_fingerprint=e.source_fingerprint
+         WHERE e.id=?1 AND e.project_id=(SELECT id FROM project LIMIT 1) AND e.status='succeeded' AND e.schema_version=1 AND r.status='ready' AND r.materializer_version=?2",
+        params![id, MATERIALIZER_VERSION], |r| Ok((Execution { id:r.get(0)?,dataset_id:r.get(1)?,operation_type:r.get(2)?,parameters:r.get(3)?,started_at:r.get(4)?,
+            completed_at:r.get(5)?,status:r.get(6)?,result_row_count:r.get::<_,Option<i64>>(7)?.map(|n|n as u64),error_summary:r.get(8)?,
+            duckdb_version:r.get(9)?,source_fingerprint:r.get(10)? },r.get(11)?,r.get(12)?,r.get(13)?)))
+        .map_err(|_| unavailable())?;
+    let request: AnalyticsRequest = serde_json::from_str(&execution.parameters).map_err(|_| unavailable())?;
+    let columns: Vec<ColumnDef> = serde_json::from_str(&schema).map_err(|_| unavailable())?;
+    validate_request(&request).map_err(|_| unavailable())?;
+    validate_representation(&table, &columns).map_err(|_| unavailable())?;
+    if request.kind != execution.operation_type || execution.duckdb_version.as_deref() != Some(&representation_version) {
+        return Err(unavailable());
+    }
+    let path = project.join("analytics.duckdb");
+    if !path.is_file() { return Err(unavailable()); }
+    let (mut guard, cancelled, timed_out) = control.start(id)?;
+    let deadline = Instant::now() + QUERY_DEADLINE;
+    let config = Config::default().access_mode(duckdb::AccessMode::ReadOnly)
+        .and_then(|c|c.enable_external_access(false)).and_then(|c|c.enable_autoload_extension(false))
+        .and_then(|c|c.max_memory("256MB")).and_then(|c|c.threads(2))
+        .and_then(|c|c.with("max_temp_directory_size","256MB")).map_err(|_| unavailable())?;
+    let conn = DuckConnection::open_with_flags(path, config).map_err(|_| unavailable())?;
+    if conn.version().map_err(|_| unavailable())? != representation_version { return Err(unavailable()); }
+    let interrupt = conn.interrupt_handle();
+    control.attach(id, interrupt.clone())?;
+    let (stop, wake) = mpsc::channel();
+    let timeout_flag = timed_out.clone();
+    let cancel_flag = cancelled.clone();
+    std::thread::spawn(move || if wake.recv_timeout(QUERY_DEADLINE).is_err() {
+        timeout_flag.store(true, Ordering::Relaxed); cancel_flag.store(true, Ordering::Relaxed); interrupt.interrupt();
+    });
+    guard.stop_timer = Some(stop);
+    let (output, rows, has_more) = read_result(&conn, &request, &columns, &table, &cancelled, &timed_out, deadline)
+        .map_err(|failure| if timed_out.load(Ordering::Relaxed) { error("timeout", "The analytical operation exceeded the 30-second limit.") }
+            else if cancelled.load(Ordering::Relaxed) { error("cancelled", "The analytical operation was cancelled.") }
+            else { let _ = failure; unavailable() })?;
+    check(&cancelled, &timed_out, deadline)?;
+    Ok(AnalyticsResult { execution, columns:output, rows, total_rows:None, has_more })
+}
 pub(super) fn export_result_inner(path: &str, columns: &[String], rows: &[Vec<Option<String>>]) -> Result<()> {
     if columns.is_empty() || columns.len() > MAX_COLUMNS || rows.len() > 200 || rows.iter().any(|r|r.len()!=columns.len()) ||
         columns.iter().map(String::len).sum::<usize>() + rows.iter().flatten().flatten().map(String::len).sum::<usize>() > MAX_RESULT_BYTES {
@@ -497,6 +541,14 @@ mod tests {
         assert_eq!(run_analytics_inner(project_path,&dataset.id,AnalyticsRequest{kind:"rows".into(),filters:None,
             sort:vec![],group_by:vec![],aggregations:vec![],limit:None,offset:None},&control).unwrap_err().code,"file_changed");
         fs::remove_file(&source).unwrap();
+        let replay = get_execution_result_inner(project_path, &rows.execution.id, &control).unwrap();
+        assert_eq!(replay.rows, rows.rows);
+        assert_eq!(list_executions_inner(project_path).unwrap().len(), 3);
+        assert_eq!(get_execution_result_inner(project_path, "unknown", &control).unwrap_err().code, "result_unavailable");
+        let metadata = db(project_path).unwrap();
+        metadata.execute("UPDATE representations SET duckdb_version='obsolete' WHERE id=(SELECT representation_id FROM executions WHERE id=?1)", [&rows.execution.id]).unwrap();
+        drop(metadata);
+        assert_eq!(get_execution_result_inner(project_path, &rows.execution.id, &control).unwrap_err().code, "result_unavailable");
         assert!(run_analytics_inner(project_path,&dataset.id,AnalyticsRequest{kind:"rows".into(),filters:None,
             sort:vec![],group_by:vec![],aggregations:vec![],limit:None,offset:None},&control).is_err());
         fs::remove_dir_all(root).unwrap();

@@ -6,8 +6,9 @@ use sha2::{Digest, Sha256};
 use tauri::State;
 
 mod analytics;
+mod notebook;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const MAX_SCAN_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_SCAN_ROWS: usize = 20_000;
 const MAX_COLUMNS: usize = 128;
@@ -79,10 +80,13 @@ fn db(project: &Path) -> Result<Connection> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|_| storage_error())?;
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|_| error("invalid_project", "Project metadata is damaged or unreadable."))?;
-    if version == 1 {
+    if version == 1 || version == 2 {
         conn.execute_batch("BEGIN IMMEDIATE").map_err(|_| storage_error())?;
-        create_analytics_tables(&conn)?;
-        conn.execute_batch("PRAGMA user_version = 2; COMMIT").map_err(|_| storage_error())?;
+        let current: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).map_err(|_| storage_error())?;
+        if current == 1 { create_analytics_tables(&conn)?; }
+        if current == 1 || current == 2 { notebook::create_tables(&conn)?; }
+        else if current != SCHEMA_VERSION { return Err(error("unsupported_project", "This project uses an unsupported metadata version.")); }
+        conn.execute_batch("PRAGMA user_version = 3; COMMIT").map_err(|_| storage_error())?;
     } else if version != SCHEMA_VERSION {
         return Err(error("unsupported_project", "This project uses an unsupported metadata version."));
     }
@@ -125,7 +129,8 @@ fn create_project_inner(name: &str, location: &str) -> Result<ProjectState> {
             size_bytes INTEGER NOT NULL, modified_ns TEXT NOT NULL, fingerprint TEXT NOT NULL,
             registered_at TEXT NOT NULL, status TEXT NOT NULL);").map_err(|_| storage_error())?;
     create_analytics_tables(&conn)?;
-    conn.execute_batch("PRAGMA user_version = 2; COMMIT;").map_err(|_| storage_error())?;
+    notebook::create_tables(&conn)?;
+    conn.execute_batch("PRAGMA user_version = 3; COMMIT;").map_err(|_| storage_error())?;
     conn.execute("INSERT INTO project (id,name,created_at) VALUES (?1,?2,?3)",
         params![uuid::Uuid::new_v4().to_string(), name, now()]).map_err(|_| storage_error())?;
     Ok(ProjectState { project: project_record(&conn, &path)?, datasets: Vec::new() })
@@ -352,12 +357,66 @@ async fn export_result(path: String, columns: Vec<String>, rows: Vec<Vec<Option<
         .await.map_err(|_| storage_error())?
 }
 
+#[tauri::command]
+async fn list_notebooks(state: State<'_, ActiveProject>) -> Result<Vec<notebook::NotebookSummary>> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::list_notebooks_inner(&project)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn get_notebook(id: String, state: State<'_, ActiveProject>) -> Result<notebook::Notebook> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::get_notebook_inner(&project, &id)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn create_notebook(title: String, state: State<'_, ActiveProject>) -> Result<notebook::Notebook> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::create_notebook_inner(&project, &title)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn rename_notebook(id: String, title: String, state: State<'_, ActiveProject>) -> Result<notebook::Notebook> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::rename_notebook_inner(&project, &id, &title)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn delete_notebook(id: String, state: State<'_, ActiveProject>) -> Result<()> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::delete_notebook_inner(&project, &id)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn add_block(notebook_id: String, kind: String, content: String, execution_id: Option<String>, state: State<'_, ActiveProject>) -> Result<notebook::NotebookBlock> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::add_block_inner(&project, &notebook_id, &kind, &content, execution_id.as_deref())).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn update_block(id: String, content: String, state: State<'_, ActiveProject>) -> Result<notebook::NotebookBlock> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::update_block_inner(&project, &id, &content)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn delete_block(id: String, state: State<'_, ActiveProject>) -> Result<()> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::delete_block_inner(&project, &id)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn move_block(id: String, direction: String, state: State<'_, ActiveProject>) -> Result<Vec<notebook::NotebookBlock>> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::move_block_inner(&project, &id, &direction)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn get_execution_result(execution_id: String, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<analytics::AnalyticsResult> {
+    let project = active(&state)?;
+    let control = control.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || analytics::get_execution_result_inner(&project, &execution_id, &control)).await.map_err(|_| storage_error())?
+}
+
 pub fn run() {
     tauri::Builder::default().plugin(tauri_plugin_dialog::init())
         .manage(ActiveProject(Mutex::new(None)))
         .manage(analytics::AnalyticsControl::default())
         .invoke_handler(tauri::generate_handler![create_project, open_project, register_csv, list_datasets, inspect_csv,
-            run_analytics, list_executions, cancel_execution, active_execution, export_result])
+            run_analytics, list_executions, cancel_execution, active_execution, export_result,
+            list_notebooks, get_notebook, create_notebook, rename_notebook, delete_notebook,
+            add_block, update_block, delete_block, move_block, get_execution_result])
         .run(tauri::generate_context!()).expect("DataForge could not start");
 }
 
@@ -371,7 +430,7 @@ mod tests {
         assert_eq!(open_project_inner(&created.project.path).unwrap().project.id, created.project.id);
         assert_eq!(create_project_inner("Study", root.to_str().unwrap()).unwrap_err().code, "project_exists");
         let conn = db(Path::new(&created.project.path)).unwrap();
-        conn.pragma_update(None, "user_version", 3).unwrap();
+        conn.pragma_update(None, "user_version", 4).unwrap();
         drop(conn);
         assert_eq!(open_project_inner(&created.project.path).unwrap_err().code, "unsupported_project");
         fs::remove_dir_all(root).unwrap();
@@ -387,13 +446,24 @@ mod tests {
     fn legacy_project_gains_analytics_tables() {
         let root = fixture(); let project = create_project_inner("Legacy", root.to_str().unwrap()).unwrap();
         let conn = db(Path::new(&project.project.path)).unwrap();
-        conn.execute_batch("DROP TABLE representations; DROP TABLE executions; PRAGMA user_version = 1;").unwrap();
+        conn.execute_batch("DROP TABLE notebook_blocks; DROP TABLE notebooks; DROP TABLE representations; DROP TABLE executions; PRAGMA user_version = 1;").unwrap();
         drop(conn);
         let reopened = open_project_inner(&project.project.path).unwrap();
         assert_eq!(reopened.project.id, project.project.id);
         let conn = db(Path::new(&project.project.path)).unwrap();
-        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 2);
+        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 3);
         assert!(conn.prepare("SELECT id FROM representations").is_ok());
+        drop(conn); fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn version_two_project_gains_notebooks() {
+        let root = fixture(); let project = create_project_inner("Legacy2", root.to_str().unwrap()).unwrap();
+        let conn = db(Path::new(&project.project.path)).unwrap();
+        conn.execute_batch("DROP TABLE notebook_blocks; DROP TABLE notebooks; PRAGMA user_version = 2;").unwrap();
+        drop(conn);
+        assert!(notebook::create_notebook_inner(Path::new(&project.project.path), "Notes").is_ok());
+        let conn = db(Path::new(&project.project.path)).unwrap();
+        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 3);
         drop(conn); fs::remove_dir_all(root).unwrap();
     }
     #[test]

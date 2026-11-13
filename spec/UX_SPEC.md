@@ -21,7 +21,7 @@ List local files and database connections. Add-source action; import/connection 
 
 ## Central workspace
 **Chat:** conversation, plan, agent activity, tool/execution summaries, approval requests.  
-**Notebook:** ordered inspectable application-defined analytical and trusted analytics executions, inputs, outputs, errors, and history. General SQL and arbitrary Python cells are deferred.  
+**Notebook:** project notebooks contain ordered Markdown and result blocks. Users can create, rename and delete notebooks, edit and preview Markdown, and add, delete and reorder blocks. Result blocks reference existing successful application-defined executions and show their metadata and a bounded replay or an unavailable state. Markdown renders headings, paragraphs, emphasis, lists, links and inline code without executable HTML. General SQL and arbitrary Python cells are deferred.
 **Dashboard:** generated charts, tables, metrics, and findings.
 
 These are views over one investigation model, not separate apps or duplicated state.
