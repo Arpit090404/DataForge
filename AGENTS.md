@@ -41,6 +41,7 @@ For meaningful changes, add/update tests, run relevant tests/type checks/linting
 
 ## Documentation
 Update specs/ADRs when contracts, behavior, security boundaries, setup, or architecture change. Keep this file focused on durable rules.
+Update `progress.md` after meaningful implementation or verification work; distinguish working features, experimental evidence, and untested plans.
 
 ## Subagents
 Delegate bounded independent tasks. Avoid concurrent edits to the same files. Treat subagent findings as unverified until checked. Architect and reviewer agents should review, not implement.

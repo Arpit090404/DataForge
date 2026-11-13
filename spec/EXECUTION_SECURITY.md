@@ -1,6 +1,10 @@
 # Execution security
 
-**Status:** Requirements only; this document does not assert controls are implemented.
+**Status:** Requirements baseline. A limited Rust-hosted CSV/DuckDB analytical path is implemented; the proposed worker, ACP, and arbitrary-code boundaries remain unimplemented.
+
+## Current local analytics boundary
+
+The Rust host accepts structured operations against a registered CSV ID, validates columns/operators, binds filter values, and constructs SQL only from application-owned expressions and generated physical names. DuckDB external access and extension autoload are disabled for these connections. The host limits source input to 64 MiB/250,000 rows, result pages to 200 rows/1 MiB, and one operation at a time, with best-effort 30-second interruption and user cancellation. These are application and DuckDB controls within the user's process identity, not filesystem/network isolation or a hard process resource boundary. The persistent DuckDB database is not subject to a proved disk quota; concurrent-host ownership and cross-store orphan recovery are not yet implemented. No Python worker or generated code runs in this slice.
 
 Proposed ADRs 0005–0008 define the initial SQL, agent, disclosure, and Python boundaries. None is verified by implementation tests. Arbitrary generated Python is deferred from the initial release.
 

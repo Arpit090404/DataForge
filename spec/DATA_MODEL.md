@@ -2,6 +2,8 @@
 
 **Status:** Logical model; physical schema and migrations are implementation deliverables.
 
+The current CSV analytics slice has SQLite schema version 2: `project`, `datasets`, `representations`, and `executions` tables. It migrates version 1 projects transactionally on open. The host creates `analytics.duckdb` on first analytical use. Current `executions` retain structured parameters, status, timing, source fingerprint, representation ID, and engine/schema version; result pages are transient. This is a subset of the full journal/artifact/recovery model below.
+
 ADR 0009 proposes the physical directory and ownership model; `DATA_REGISTRATION.md` defines source identity and on-demand analytical representation versions. Both require review and proof.
 
 ## Principles

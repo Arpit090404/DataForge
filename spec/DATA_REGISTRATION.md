@@ -1,6 +1,10 @@
 # Data registration and catalog
 
-**Status:** Proposed contract for architecture review; no implementation exists.
+**Status:** Proposed contract for architecture review. The CSV external-reference and lazy Rust-hosted DuckDB subset is implemented; managed imports, explicit refresh, and full recovery remain unimplemented.
+
+## Current CSV subset
+
+The host records an external CSV path, size, modification time, SHA-256 fingerprint, and status in SQLite. It checks the source on access and refuses analytics when changed or missing. First analytical use materializes at most 64 MiB/250,000 rows into a generated DuckDB table; later uses reuse only the same dataset, source fingerprint, materializer version, and DuckDB version. The source is not rewritten. The current representation records inferred schema JSON but does not yet record a separate content/manifest hash or full canonical parser configuration. The input cap does not enforce a strict persistent database file quota. Source refresh and managed imports are not available in this slice.
 
 ## Registration
 
@@ -18,7 +22,7 @@ An external reference is checked when opened and before new inspection/materiali
 
 ## Catalog binding
 
-Rust maps IDs to authorized source registrations and versioned analytical representations. The host opens and verifies a source, brokers bounded content to trusted parsing/ingestion code, and creates any DuckDB representation itself only when needed for an application-defined analytical operation. The worker receives no writable project path or DuckDB handle. App-created table/view names are generated from IDs, not user labels. Template execution receives representation/catalog IDs, never source paths or caller-supplied SQL. Binding is restricted to authorized representation relations; a caller cannot register new files, refer to filesystem paths, or attach databases through a template. Refresh does not silently change the inputs of a recorded execution. See `STORAGE_OWNERSHIP_DESIGN.md` for the unproved Windows access boundary.
+Rust maps IDs to authorized source registrations and versioned analytical representations. In the current slice, the host opens and verifies a CSV, parses it directly, and creates the on-demand DuckDB representation. The proposed worker model would broker bounded content to trusted parsing code without giving the worker a writable project path or DuckDB handle. App-created table names are generated, not based on user labels. Structured operations receive dataset IDs, never source paths or caller-supplied SQL; binding is restricted to the registered representation. Refresh does not silently change recorded execution inputs. See `STORAGE_OWNERSHIP_DESIGN.md` for the unproved future Windows worker access boundary.
 
 ## Limits and disclosure
 

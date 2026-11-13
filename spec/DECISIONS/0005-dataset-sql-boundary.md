@@ -3,6 +3,8 @@
 - Status: Proposed for architecture approval; enforcement unverified.
 - Date: 2026-11-12
 
+Implementation note: a user-directed Rust-hosted CSV/DuckDB slice now executes structured filters, sorts, and aggregations with bounded results and on-demand materialization. It does not expose general SQL and does not establish the full worker, storage quota, and recovery proof gates below. This ADR remains proposed.
+
 ## Phased recommendation after the DuckDB CLI spike
 
 Milestone 1 does not accept user- or agent-supplied SQL. It exposes bounded previews and application-defined analytical operations/query templates only. The host selects a fixed, versioned template and registered analytical representation IDs; callers provide typed values, never SQL fragments, identifiers, file paths, or function names. Validate parameters against the template schema and bind values through DuckDB parameters. Resolve representation IDs through the host catalog and apply row, byte, time, memory/concurrency, and temporary-storage limits. Record the template/version, parameter values or protected references, representation/source fingerprints, engine/materializer versions, result limits, timing, status, and output hashes. Original sources remain immutable. This is a scope adjustment: DuckDB still performs local analytical queries, but the exposed language is the application's bounded operation set.

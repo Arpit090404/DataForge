@@ -5,7 +5,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::State;
 
-const SCHEMA_VERSION: i64 = 1;
+mod analytics;
+
+const SCHEMA_VERSION: i64 = 2;
 const MAX_SCAN_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_SCAN_ROWS: usize = 20_000;
 const MAX_COLUMNS: usize = 128;
@@ -55,13 +57,35 @@ fn source_info(path: &Path) -> Result<(u64, u128, String)> {
     Ok((after.len(), before_time, hash))
 }
 fn db_path(project: &Path) -> PathBuf { project.join("project.sqlite") }
+fn create_analytics_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch("CREATE TABLE representations (
+            id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL, source_fingerprint TEXT NOT NULL,
+            table_name TEXT NOT NULL UNIQUE, duckdb_version TEXT NOT NULL,
+            materializer_version TEXT NOT NULL, schema_json TEXT NOT NULL,
+            created_at TEXT NOT NULL, status TEXT NOT NULL,
+            UNIQUE(dataset_id, source_fingerprint, materializer_version, duckdb_version));
+        CREATE TABLE executions (
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, dataset_id TEXT NOT NULL,
+            representation_id TEXT, source_fingerprint TEXT NOT NULL,
+            operation_type TEXT NOT NULL, parameters TEXT NOT NULL,
+            started_at TEXT NOT NULL, completed_at TEXT, status TEXT NOT NULL,
+            result_row_count INTEGER, error_summary TEXT, duckdb_version TEXT,
+            schema_version INTEGER NOT NULL);")
+        .map_err(|_| storage_error())
+}
 fn db(project: &Path) -> Result<Connection> {
     let path = db_path(project);
     if !path.is_file() { return Err(error("invalid_project", "This folder does not contain a DataForge project.")); }
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|_| storage_error())?;
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|_| error("invalid_project", "Project metadata is damaged or unreadable."))?;
-    if version != SCHEMA_VERSION { return Err(error("unsupported_project", "This project uses an unsupported metadata version.")); }
+    if version == 1 {
+        conn.execute_batch("BEGIN IMMEDIATE").map_err(|_| storage_error())?;
+        create_analytics_tables(&conn)?;
+        conn.execute_batch("PRAGMA user_version = 2; COMMIT").map_err(|_| storage_error())?;
+    } else if version != SCHEMA_VERSION {
+        return Err(error("unsupported_project", "This project uses an unsupported metadata version."));
+    }
     Ok(conn)
 }
 
@@ -72,7 +96,7 @@ pub struct Dataset { id: String, name: String, path: String, size_bytes: u64, re
 #[derive(Debug, Serialize)]
 pub struct ProjectState { project: Project, datasets: Vec<Dataset> }
 #[derive(Debug, Serialize)]
-pub struct ColumnProfile { name: String, data_type: String, null_count: u64, distinct_count: usize, distinct_exact: bool, min: Option<f64>, max: Option<f64>, mean: Option<f64> }
+pub struct ColumnProfile { name: String, data_type: String, null_count: u64, distinct_count: usize, distinct_exact: bool, min: Option<f64>, max: Option<f64>, mean: Option<f64>, median: Option<f64> }
 #[derive(Debug, Serialize)]
 pub struct Inspection { dataset: Dataset, columns: Vec<ColumnProfile>, rows: Vec<Vec<Option<String>>>, row_count: Option<u64>, row_count_exact: bool, preview_truncated: bool, scanned_rows: u64 }
 
@@ -99,8 +123,9 @@ fn create_project_inner(name: &str, location: &str) -> Result<ProjectState> {
         CREATE TABLE project (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE datasets (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL COLLATE NOCASE UNIQUE,
             size_bytes INTEGER NOT NULL, modified_ns TEXT NOT NULL, fingerprint TEXT NOT NULL,
-            registered_at TEXT NOT NULL, status TEXT NOT NULL);
-        PRAGMA user_version = 1; COMMIT;").map_err(|_| storage_error())?;
+            registered_at TEXT NOT NULL, status TEXT NOT NULL);").map_err(|_| storage_error())?;
+    create_analytics_tables(&conn)?;
+    conn.execute_batch("PRAGMA user_version = 2; COMMIT;").map_err(|_| storage_error())?;
     conn.execute("INSERT INTO project (id,name,created_at) VALUES (?1,?2,?3)",
         params![uuid::Uuid::new_v4().to_string(), name, now()]).map_err(|_| storage_error())?;
     Ok(ProjectState { project: project_record(&conn, &path)?, datasets: Vec::new() })
@@ -109,6 +134,8 @@ fn open_project_inner(path: &str) -> Result<ProjectState> {
     let project_path = fs::canonicalize(path).map_err(|_| error("invalid_path", "The project folder does not exist."))?;
     if !project_path.is_dir() { return Err(error("invalid_path", "Choose a project folder.")); }
     let conn = db(&project_path)?;
+    conn.execute("UPDATE executions SET status='interrupted', completed_at=?1 WHERE status='running'", [now()])
+        .map_err(|_| storage_error())?;
     let project = project_record(&conn, &project_path)?;
     let datasets = list_datasets_inner(&conn)?;
     Ok(ProjectState { project, datasets })
@@ -169,10 +196,10 @@ fn register_csv_inner(project: &Path, path: &str) -> Result<Dataset> {
 }
 
 struct ProfileWork { name: String, nulls: u64, distinct: HashSet<String>, distinct_capped: bool,
-    all_int: bool, all_number: bool, all_bool: bool, numeric_count: u64, sum: f64, min: f64, max: f64 }
+    all_int: bool, all_number: bool, all_bool: bool, numeric_count: u64, sum: f64, min: f64, max: f64, numbers: Vec<f64> }
 impl ProfileWork {
     fn new(name: String) -> Self { Self { name, nulls: 0, distinct: HashSet::new(), distinct_capped: false,
-        all_int: true, all_number: true, all_bool: true, numeric_count: 0, sum: 0.0, min: f64::INFINITY, max: f64::NEG_INFINITY } }
+        all_int: true, all_number: true, all_bool: true, numeric_count: 0, sum: 0.0, min: f64::INFINITY, max: f64::NEG_INFINITY, numbers: Vec::new() } }
     fn add(&mut self, value: &str) {
         let value = value.trim();
         if value.is_empty() { self.nulls += 1; return; }
@@ -181,25 +208,31 @@ impl ProfileWork {
         self.all_int &= value.parse::<i64>().is_ok();
         self.all_bool &= value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false");
         match value.parse::<f64>() {
-            Ok(number) if number.is_finite() => { self.numeric_count += 1; self.sum += number;
+            Ok(number) if number.is_finite() => { self.numeric_count += 1; self.sum += number; self.numbers.push(number);
                 self.min = self.min.min(number); self.max = self.max.max(number); }
             _ => self.all_number = false
         }
     }
-    fn finish(self, complete: bool) -> ColumnProfile {
+    fn finish(mut self, complete: bool) -> ColumnProfile {
         let numeric = self.all_number && self.numeric_count > 0;
+        let median = if numeric {
+            self.numbers.sort_by(f64::total_cmp);
+            let middle = self.numbers.len() / 2;
+            let value = if self.numbers.len() % 2 == 0 { self.numbers[middle - 1] / 2.0 + self.numbers[middle] / 2.0 }
+                else { self.numbers[middle] };
+            value.is_finite().then_some(value)
+        } else { None };
         let mean = if numeric {
             let value = self.sum / self.numeric_count as f64;
             value.is_finite().then_some(value)
         } else { None };
         ColumnProfile { name: self.name,
-            data_type: if self.numeric_count == 0 && self.nulls == 0 { "text" }
-                else if self.all_bool && self.numeric_count == 0 { "boolean" }
+            data_type: if self.all_bool && !self.distinct.is_empty() { "boolean" }
                 else if self.all_int && numeric { "integer" }
                 else if numeric { "decimal" } else { "text" }.into(),
             null_count: self.nulls, distinct_count: self.distinct.len(), distinct_exact: complete && !self.distinct_capped,
             min: numeric.then_some(self.min), max: numeric.then_some(self.max),
-            mean }
+            mean, median }
     }
 }
 #[derive(Debug)]
@@ -214,6 +247,7 @@ fn scan_csv(path: &Path, limit: usize) -> Result<Scan> {
     let mut profiles: Vec<_> = headers.iter().map(|name| ProfileWork::new(name.to_string())).collect();
     let mut rows = Vec::new();
     let mut preview_bytes = 0usize;
+    let mut cell_truncated = false;
     let mut scanned = 0u64;
     let mut hit_row_cap = false;
     let mut record = csv::StringRecord::new();
@@ -229,7 +263,10 @@ fn scan_csv(path: &Path, limit: usize) -> Result<Scan> {
         scanned += 1;
         if rows.len() < limit && preview_bytes < MAX_PREVIEW_BYTES {
             let row: Vec<Option<String>> = record.iter().map(|v| if v.trim().is_empty() { None }
-                else { Some(v.chars().take(4096).collect()) }).collect();
+                else {
+                    if v.chars().nth(4096).is_some() { cell_truncated = true; }
+                    Some(v.chars().take(4096).collect())
+                }).collect();
             preview_bytes += row.iter().flatten().map(String::len).sum::<usize>();
             if preview_bytes <= MAX_PREVIEW_BYTES { rows.push(row); }
         }
@@ -237,7 +274,7 @@ fn scan_csv(path: &Path, limit: usize) -> Result<Scan> {
     }
     let complete = !hit_row_cap && size <= MAX_SCAN_BYTES;
     Ok(Scan { columns: profiles.into_iter().map(|p| p.finish(complete)).collect(),
-        preview_truncated: !complete || scanned as usize > rows.len(), rows,
+        preview_truncated: cell_truncated || !complete || scanned as usize > rows.len(), rows,
         row_count: complete.then_some(scanned), scanned_rows: scanned })
 }
 fn inspect_csv_inner(project: &Path, dataset_id: &str, limit: usize) -> Result<Inspection> {
@@ -262,13 +299,15 @@ fn active(state: &State<'_, ActiveProject>) -> Result<PathBuf> {
     state.0.lock().map_err(|_| storage_error())?.clone().ok_or_else(|| error("no_project", "Create or open a project first."))
 }
 #[tauri::command]
-async fn create_project(name: String, location: String, state: State<'_, ActiveProject>) -> Result<ProjectState> {
+async fn create_project(name: String, location: String, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<ProjectState> {
+    if control.is_running() { return Err(error("analytics_busy", "Wait for the analytical operation to finish before switching projects.")); }
     let result = tauri::async_runtime::spawn_blocking(move || create_project_inner(&name, &location)).await.map_err(|_| storage_error())??;
     *state.0.lock().map_err(|_| storage_error())? = Some(PathBuf::from(&result.project.path));
     Ok(result)
 }
 #[tauri::command]
-async fn open_project(path: String, state: State<'_, ActiveProject>) -> Result<ProjectState> {
+async fn open_project(path: String, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<ProjectState> {
+    if control.is_running() { return Err(error("analytics_busy", "Wait for the analytical operation to finish before switching projects.")); }
     let result = tauri::async_runtime::spawn_blocking(move || open_project_inner(&path)).await.map_err(|_| storage_error())??;
     *state.0.lock().map_err(|_| storage_error())? = Some(PathBuf::from(&result.project.path));
     Ok(result)
@@ -288,11 +327,37 @@ async fn inspect_csv(dataset_id: String, limit: usize, state: State<'_, ActivePr
     let project = active(&state)?;
     tauri::async_runtime::spawn_blocking(move || inspect_csv_inner(&project, &dataset_id, limit)).await.map_err(|_| storage_error())?
 }
+#[tauri::command]
+async fn run_analytics(dataset_id: String, request: analytics::AnalyticsRequest,
+    state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<analytics::AnalyticsResult> {
+    let project = active(&state)?;
+    let control = control.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || analytics::run_analytics_inner(&project, &dataset_id, request, &control))
+        .await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn list_executions(state: State<'_, ActiveProject>) -> Result<Vec<analytics::Execution>> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || analytics::list_executions_inner(&project)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+fn cancel_execution(execution_id: String, control: State<'_, analytics::AnalyticsControl>) -> Result<()> {
+    analytics::cancel_execution_inner(&control, &execution_id)
+}
+#[tauri::command]
+fn active_execution(control: State<'_, analytics::AnalyticsControl>) -> Option<String> { control.running_id() }
+#[tauri::command]
+async fn export_result(path: String, columns: Vec<String>, rows: Vec<Vec<Option<String>>>) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || analytics::export_result_inner(&path, &columns, &rows))
+        .await.map_err(|_| storage_error())?
+}
 
 pub fn run() {
     tauri::Builder::default().plugin(tauri_plugin_dialog::init())
         .manage(ActiveProject(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![create_project, open_project, register_csv, list_datasets, inspect_csv])
+        .manage(analytics::AnalyticsControl::default())
+        .invoke_handler(tauri::generate_handler![create_project, open_project, register_csv, list_datasets, inspect_csv,
+            run_analytics, list_executions, cancel_execution, active_execution, export_result])
         .run(tauri::generate_context!()).expect("DataForge could not start");
 }
 
@@ -306,7 +371,7 @@ mod tests {
         assert_eq!(open_project_inner(&created.project.path).unwrap().project.id, created.project.id);
         assert_eq!(create_project_inner("Study", root.to_str().unwrap()).unwrap_err().code, "project_exists");
         let conn = db(Path::new(&created.project.path)).unwrap();
-        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.pragma_update(None, "user_version", 3).unwrap();
         drop(conn);
         assert_eq!(open_project_inner(&created.project.path).unwrap_err().code, "unsupported_project");
         fs::remove_dir_all(root).unwrap();
@@ -317,6 +382,32 @@ mod tests {
         fs::write(db_path(&project), b"not a SQLite database").unwrap();
         assert_eq!(open_project_inner(project.to_str().unwrap()).unwrap_err().code, "invalid_project");
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn legacy_project_gains_analytics_tables() {
+        let root = fixture(); let project = create_project_inner("Legacy", root.to_str().unwrap()).unwrap();
+        let conn = db(Path::new(&project.project.path)).unwrap();
+        conn.execute_batch("DROP TABLE representations; DROP TABLE executions; PRAGMA user_version = 1;").unwrap();
+        drop(conn);
+        let reopened = open_project_inner(&project.project.path).unwrap();
+        assert_eq!(reopened.project.id, project.project.id);
+        let conn = db(Path::new(&project.project.path)).unwrap();
+        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 2);
+        assert!(conn.prepare("SELECT id FROM representations").is_ok());
+        drop(conn); fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn reopening_marks_incomplete_execution_interrupted() {
+        let root = fixture(); let project = create_project_inner("Recovery", root.to_str().unwrap()).unwrap();
+        let conn = db(Path::new(&project.project.path)).unwrap();
+        conn.execute("INSERT INTO executions (id,project_id,dataset_id,source_fingerprint,operation_type,parameters,started_at,status,schema_version)
+            VALUES ('run-1',?1,'source-1','hash','rows','{}',?2,'running',1)", params![project.project.id, now()]).unwrap();
+        drop(conn);
+        open_project_inner(&project.project.path).unwrap();
+        let conn = db(Path::new(&project.project.path)).unwrap();
+        let status: String = conn.query_row("SELECT status FROM executions WHERE id='run-1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(status, "interrupted");
+        drop(conn); fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn register_detects_duplicate_change_and_missing() {
@@ -350,12 +441,75 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn clipped_cell_is_labeled_as_truncated_preview() {
+        let root = fixture(); let source = root.join("long-cell.csv");
+        fs::write(&source, format!("note\n{}\n", "x".repeat(5000))).unwrap();
+        let scan = scan_csv(&source, 2).unwrap();
+        assert_eq!(scan.rows[0][0].as_ref().unwrap().len(), 4096);
+        assert!(scan.preview_truncated);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn large_file_does_not_hide_early_malformed_row() {
         let root = fixture(); let source = root.join("large.csv");
         let mut data = String::from("a,b\n1\n");
         data.push_str(&"2,3\n".repeat((MAX_SCAN_BYTES as usize / 4) + 1));
         fs::write(&source, data).unwrap();
         assert_eq!(scan_csv(&source, 2).unwrap_err().code, "malformed_csv");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn reopened_project_preserves_known_csv_profile_and_source() {
+        let root = fixture(); let project = create_project_inner("Verification", root.to_str().unwrap()).unwrap();
+        let source = root.join("known.csv");
+        let original = b"age,city,active\n10,Paris,true\n20,,false\n,Paris,true\n";
+        fs::write(&source, original).unwrap();
+        let registered = register_csv_inner(Path::new(&project.project.path), source.to_str().unwrap()).unwrap();
+        let reopened = open_project_inner(&project.project.path).unwrap();
+        assert_eq!(reopened.project.id, project.project.id);
+        assert_eq!(reopened.datasets.len(), 1);
+        assert_eq!(reopened.datasets[0].id, registered.id);
+        let inspection = inspect_csv_inner(Path::new(&project.project.path), &registered.id, 2).unwrap();
+        assert_eq!(inspection.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["age", "city", "active"]);
+        assert_eq!(inspection.columns.iter().map(|c| c.data_type.as_str()).collect::<Vec<_>>(), ["integer", "text", "boolean"]);
+        assert_eq!(inspection.columns[0].null_count, 1);
+        assert_eq!(inspection.columns[0].distinct_count, 2);
+        assert_eq!(inspection.columns[0].min, Some(10.0));
+        assert_eq!(inspection.columns[0].max, Some(20.0));
+        assert_eq!(inspection.columns[0].mean, Some(15.0));
+        assert_eq!(inspection.columns[0].median, Some(15.0));
+        assert_eq!(inspection.columns[1].null_count, 1);
+        assert_eq!(inspection.columns[1].distinct_count, 1);
+        assert_eq!(inspection.columns[2].distinct_count, 2);
+        assert_eq!(inspection.rows.len(), 2);
+        assert_eq!(inspection.row_count, Some(3));
+        assert!(inspection.row_count_exact && inspection.preview_truncated);
+        assert_eq!(fs::read(&source).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn registration_rejects_bad_inputs_and_large_preview_is_partial() {
+        let root = fixture(); let project = create_project_inner("Verification", root.to_str().unwrap()).unwrap();
+        let path = Path::new(&project.project.path);
+        assert_eq!(open_project_inner(root.to_str().unwrap()).unwrap_err().code, "invalid_project");
+        let unsupported = root.join("notes.txt"); fs::write(&unsupported, "value\n1\n").unwrap();
+        assert_eq!(register_csv_inner(path, unsupported.to_str().unwrap()).unwrap_err().code, "unsupported_file");
+        let empty = root.join("empty.csv"); fs::write(&empty, "").unwrap();
+        assert_eq!(register_csv_inner(path, empty.to_str().unwrap()).unwrap_err().code, "malformed_csv");
+        let malformed = root.join("malformed.csv"); fs::write(&malformed, "a,b\n1\n").unwrap();
+        assert_eq!(register_csv_inner(path, malformed.to_str().unwrap()).unwrap_err().code, "malformed_csv");
+        let large = root.join("large.csv");
+        let mut content = String::from("value\n");
+        for index in 0..20_050 { content.push_str(&format!("{index}\n")); }
+        fs::write(&large, content.as_bytes()).unwrap();
+        let dataset = register_csv_inner(path, large.to_str().unwrap()).unwrap();
+        let inspection = inspect_csv_inner(path, &dataset.id, 100).unwrap();
+        assert_eq!(inspection.rows.len(), 100);
+        assert_eq!(inspection.scanned_rows, 20_000);
+        assert_eq!(inspection.row_count, None);
+        assert!(!inspection.row_count_exact && inspection.preview_truncated);
+        assert!(!inspection.columns[0].distinct_exact);
+        assert_eq!(fs::read(&large).unwrap(), content.as_bytes());
         fs::remove_dir_all(root).unwrap();
     }
 }

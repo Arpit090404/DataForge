@@ -1,6 +1,6 @@
 # Milestone 1 — Desktop foundation
 
-**Implementation status:** A user-authorized local CSV-only vertical slice is implemented. It does not claim completion of this milestone's DuckDB, worker/IPC, multi-format, or recovery acceptance criteria.
+**Implementation status:** User-directed local CSV inspection and Rust-hosted DuckDB structured analytics slices are implemented. They do not claim completion of this milestone's worker/IPC, multi-format, storage-ownership, recovery, or full provenance acceptance criteria.
 
 ## Goal
 A Windows desktop shell where users create projects, register local files, inspect datasets, and use bounded application-defined analytical operations without an agent.
