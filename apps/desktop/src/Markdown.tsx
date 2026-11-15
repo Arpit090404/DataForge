@@ -26,6 +26,14 @@ export function Markdown({ text }: { text: string }) {
   const nodes: React.ReactNode[] = [];
   for (let i = 0; i < lines.length;) {
     if (!lines[i].trim()) { i++; continue; }
+    if (/^```/.test(lines[i])) {
+      const start = i++;
+      const code: string[] = [];
+      while (i < lines.length && !/^```\s*$/.test(lines[i])) code.push(lines[i++]);
+      if (i < lines.length) i++;
+      nodes.push(<pre key={start}><code>{code.join('\n')}</code></pre>);
+      continue;
+    }
     const heading = /^(#{1,6})\s+(.+)$/.exec(lines[i]);
     if (heading) {
       const content = inline(heading[2]);
@@ -44,7 +52,7 @@ export function Markdown({ text }: { text: string }) {
       nodes.push(ordered ? <ol key={start}>{items}</ol> : <ul key={start}>{items}</ul>); continue;
     }
     const start = i; const paragraph: string[] = [];
-    while (i < lines.length && lines[i].trim() && (i === start || !/^(#{1,6}\s+|\s*([-*+] |\d+\. ))/.test(lines[i]))) paragraph.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() && (i === start || !/^(#{1,6}\s+|```|\s*([-*+] |\d+\. ))/.test(lines[i]))) paragraph.push(lines[i++]);
     nodes.push(<p key={start}>{inline(paragraph.join(' '))}</p>);
   }
   return <div className="notebook-markdown">{nodes.length ? nodes : <p className="notebook-muted">Empty Markdown block</p>}</div>;

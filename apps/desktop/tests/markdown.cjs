@@ -21,4 +21,5 @@ assert.ok(unsafe.includes('&lt;img'));
 assert.ok(!unsafe.includes('<img'));
 assert.ok(!unsafe.includes('href='));
 assert.ok(render('[email](mailto:test@example.com)').includes('href="mailto:test@example.com"'));
+assert.ok(render('Intro\n```sql\nSELECT <name>\n```').includes('<pre><code>SELECT &lt;name&gt;</code></pre>'));
 console.log('Markdown rendering checks passed.');

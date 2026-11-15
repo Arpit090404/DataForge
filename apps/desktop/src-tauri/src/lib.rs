@@ -8,7 +8,7 @@ use tauri::State;
 mod analytics;
 mod notebook;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const MAX_SCAN_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_SCAN_ROWS: usize = 20_000;
 const MAX_COLUMNS: usize = 128;
@@ -80,13 +80,14 @@ fn db(project: &Path) -> Result<Connection> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|_| storage_error())?;
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|_| error("invalid_project", "Project metadata is damaged or unreadable."))?;
-    if version == 1 || version == 2 {
+    if (1..SCHEMA_VERSION).contains(&version) {
         conn.execute_batch("BEGIN IMMEDIATE").map_err(|_| storage_error())?;
         let current: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).map_err(|_| storage_error())?;
         if current == 1 { create_analytics_tables(&conn)?; }
         if current == 1 || current == 2 { notebook::create_tables(&conn)?; }
+        else if current == 3 { notebook::migrate_v3_to_v4(&conn)?; }
         else if current != SCHEMA_VERSION { return Err(error("unsupported_project", "This project uses an unsupported metadata version.")); }
-        conn.execute_batch("PRAGMA user_version = 3; COMMIT").map_err(|_| storage_error())?;
+        conn.execute_batch("PRAGMA user_version = 4; COMMIT").map_err(|_| storage_error())?;
     } else if version != SCHEMA_VERSION {
         return Err(error("unsupported_project", "This project uses an unsupported metadata version."));
     }
@@ -130,7 +131,7 @@ fn create_project_inner(name: &str, location: &str) -> Result<ProjectState> {
             registered_at TEXT NOT NULL, status TEXT NOT NULL);").map_err(|_| storage_error())?;
     create_analytics_tables(&conn)?;
     notebook::create_tables(&conn)?;
-    conn.execute_batch("PRAGMA user_version = 3; COMMIT;").map_err(|_| storage_error())?;
+    conn.execute_batch("PRAGMA user_version = 4; COMMIT;").map_err(|_| storage_error())?;
     conn.execute("INSERT INTO project (id,name,created_at) VALUES (?1,?2,?3)",
         params![uuid::Uuid::new_v4().to_string(), name, now()]).map_err(|_| storage_error())?;
     Ok(ProjectState { project: project_record(&conn, &path)?, datasets: Vec::new() })
@@ -383,14 +384,14 @@ async fn delete_notebook(id: String, state: State<'_, ActiveProject>) -> Result<
     tauri::async_runtime::spawn_blocking(move || notebook::delete_notebook_inner(&project, &id)).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
-async fn add_block(notebook_id: String, kind: String, content: String, execution_id: Option<String>, state: State<'_, ActiveProject>) -> Result<notebook::NotebookBlock> {
+async fn add_block(notebook_id: String, kind: String, content: String, execution_id: Option<String>, relative_to: Option<String>, placement: Option<String>, language: Option<String>, state: State<'_, ActiveProject>) -> Result<notebook::NotebookBlock> {
     let project = active(&state)?;
-    tauri::async_runtime::spawn_blocking(move || notebook::add_block_inner(&project, &notebook_id, &kind, &content, execution_id.as_deref())).await.map_err(|_| storage_error())?
+    tauri::async_runtime::spawn_blocking(move || notebook::add_block_inner(&project, &notebook_id, &kind, &content, execution_id.as_deref(), relative_to.as_deref(), placement.as_deref(), language.as_deref())).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
-async fn update_block(id: String, content: String, state: State<'_, ActiveProject>) -> Result<notebook::NotebookBlock> {
+async fn update_block(id: String, content: String, language: Option<String>, state: State<'_, ActiveProject>) -> Result<notebook::NotebookBlock> {
     let project = active(&state)?;
-    tauri::async_runtime::spawn_blocking(move || notebook::update_block_inner(&project, &id, &content)).await.map_err(|_| storage_error())?
+    tauri::async_runtime::spawn_blocking(move || notebook::update_block_inner(&project, &id, &content, language.as_deref())).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
 async fn delete_block(id: String, state: State<'_, ActiveProject>) -> Result<()> {
@@ -430,7 +431,7 @@ mod tests {
         assert_eq!(open_project_inner(&created.project.path).unwrap().project.id, created.project.id);
         assert_eq!(create_project_inner("Study", root.to_str().unwrap()).unwrap_err().code, "project_exists");
         let conn = db(Path::new(&created.project.path)).unwrap();
-        conn.pragma_update(None, "user_version", 4).unwrap();
+        conn.pragma_update(None, "user_version", 5).unwrap();
         drop(conn);
         assert_eq!(open_project_inner(&created.project.path).unwrap_err().code, "unsupported_project");
         fs::remove_dir_all(root).unwrap();
@@ -451,7 +452,7 @@ mod tests {
         let reopened = open_project_inner(&project.project.path).unwrap();
         assert_eq!(reopened.project.id, project.project.id);
         let conn = db(Path::new(&project.project.path)).unwrap();
-        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 3);
+        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 4);
         assert!(conn.prepare("SELECT id FROM representations").is_ok());
         drop(conn); fs::remove_dir_all(root).unwrap();
     }
@@ -463,7 +464,37 @@ mod tests {
         drop(conn);
         assert!(notebook::create_notebook_inner(Path::new(&project.project.path), "Notes").is_ok());
         let conn = db(Path::new(&project.project.path)).unwrap();
-        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 3);
+        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 4);
+        drop(conn); fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn version_three_notebook_migrates_without_losing_cells() {
+        let root = fixture(); let project = create_project_inner("Legacy3", root.to_str().unwrap()).unwrap();
+        let path=Path::new(&project.project.path);
+        let conn=db(path).unwrap();
+        conn.execute_batch("DROP TABLE notebook_blocks;
+            CREATE TABLE notebook_blocks (
+                id TEXT PRIMARY KEY, notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('markdown','result')),
+                content TEXT NOT NULL, execution_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE INDEX notebook_blocks_order ON notebook_blocks(notebook_id,position,id);
+            PRAGMA user_version = 3;").unwrap();
+        let stamp=now();
+        conn.execute("INSERT INTO notebooks(id,title,created_at,updated_at) VALUES('old-note','Research',?1,?1)",[&stamp]).unwrap();
+        conn.execute("INSERT INTO notebook_blocks(id,notebook_id,position,kind,content,execution_id,created_at,updated_at)
+            VALUES('old-text','old-note',0,'markdown','Existing text',NULL,?1,?1)",[&stamp]).unwrap();
+        conn.execute("INSERT INTO notebook_blocks(id,notebook_id,position,kind,content,execution_id,created_at,updated_at)
+            VALUES('old-result','old-note',1,'result','','saved-run',?1,?1)",[&stamp]).unwrap();
+        drop(conn);
+        notebook::get_notebook_inner(path,"old-note").unwrap();
+        let conn=db(path).unwrap();
+        assert_eq!(conn.pragma_query_value::<i64, _>(None,"user_version",|r|r.get(0)).unwrap(),4);
+        let rows:Vec<(String,String,String,Option<String>,Option<String>)>=conn.prepare(
+            "SELECT id,kind,content,execution_id,language FROM notebook_blocks WHERE notebook_id='old-note' ORDER BY position"
+        ).unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))
+            .unwrap().map(|r|r.unwrap()).collect();
+        assert_eq!(rows,vec![("old-text".into(),"markdown".into(),"Existing text".into(),None,None),
+            ("old-result".into(),"result".into(),"".into(),Some("saved-run".into()),None)]);
         drop(conn); fs::remove_dir_all(root).unwrap();
     }
     #[test]
