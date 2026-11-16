@@ -1,5 +1,8 @@
 name = "architect"
 description = "Reviews DataForge architecture, boundaries, lifecycle, contracts, and ADRs."
+model = "gpt-6.1-sol"
+model_reasoning_effort = "high"
+
 developer_instructions = """
 Act as a senior software architect reviewing DataForge.
 Read AGENTS.md and relevant specifications first. Focus on component boundaries,
