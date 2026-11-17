@@ -1,6 +1,6 @@
 # DataForge application shell audit
 
-**Status:** Source inspection, 2026-11-17. No application code changed or native window opened for this audit. References describe the current checked-in implementation; proposed behavior is in [REDESIGN_SPEC.md](REDESIGN_SPEC.md). Prior native checks in `progress.md` are historical evidence, not a visual inspection in this audit.
+**Status:** Historical source baseline before Task 1.1, 2026-11-17. No application code changed or native window opened for this audit. Its fixed-track and corner-resize findings have since been addressed by Task 1.1; the remaining findings still guide later work. Proposed behavior is in [REDESIGN_SPEC.md](REDESIGN_SPEC.md). Prior native checks in `progress.md` are historical evidence, not a visual inspection in this audit.
 
 ## 1. Current architecture and ownership
 

@@ -85,6 +85,8 @@ Use `--control-height-small/default/large/icon` for those heights. Lucide is the
 
 ## Interaction and usage rules
 
+The left navigation sidebar is a shell-owned layout preference shared by Chat, Notebook, and Dashboard. Its default width is 248 px, bounded to 210–340 px; the CSS grid reads the same live `--sidebar-width` value. The inner edge has an 8 px full-height resize hit area with a 1 px divider, hover cue, and visible focus ring. Its vertical separator exposes current/min/max width. Arrow Left/Right adjust by 10 px, Shift+Arrow by 20 px, Home/End reach the bounds, and double-click restores 248 px. Persist the width in local browser storage, not project metadata; ignore invalid stored values and clamp valid values. Notebook sidebar collapse removes its grid track without changing the saved width.
+
 Every interactive control needs default, hover, active, focus-visible, disabled, and, where relevant, selected, loading, and destructive states. Hover changes a surface, not layout. Focus works by keyboard. Disabled controls remain identifiable. Honor `prefers-reduced-motion`; transitions are short and purposeful.
 
 Form controls retain native `required` and disabled semantics. Mark validation failures with `aria-invalid="true"` to use the error-border token, associate labels through `htmlFor`/`id` or an enclosing label, and connect field-level helper or error text with `aria-describedby` when present. A read-only field remains focusable and selectable unless a specific workflow requires otherwise.
