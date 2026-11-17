@@ -2,6 +2,7 @@ import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva } from 'class-variance-authority';
 import { cn } from 'cn';
 import { forwardRef } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
 const buttonVariants = cva(
   'ui-button inline-flex shrink-0 items-center justify-center gap-[var(--space-2)] whitespace-nowrap rounded-[var(--radius-default)] border border-transparent px-[var(--space-control-x)] text-[length:var(--font-size-body)] font-[var(--font-weight-semibold)] leading-none cursor-pointer motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-[var(--color-focus-ring)] focus-visible:outline-offset-2 enabled:active:brightness-90 disabled:cursor-not-allowed disabled:opacity-50 aria-busy:cursor-progress aria-busy:opacity-70 [&_svg]:size-[var(--icon-size-default)] [&_svg]:shrink-0 [&_svg]:stroke-[length:var(--icon-stroke)]',
@@ -41,7 +42,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 type IconButtonProps = Omit<ButtonProps, 'variant' | 'aria-label'> & { label: string };
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { label, title, ...props }, ref,
+  { label, title, disabled, ...props }, ref,
 ) {
-  return <Button ref={ref} variant="icon" aria-label={label} title={title ?? label} {...props} />;
+  const button = <Button ref={ref} variant="icon" aria-label={label} disabled={disabled} {...props} />;
+  return <Tooltip>
+    {disabled ? <TooltipTrigger render={<span className="inline-flex" />}>{button}</TooltipTrigger> : <TooltipTrigger render={button} />}
+    <TooltipContent>{title ?? label}</TooltipContent>
+  </Tooltip>;
 });
