@@ -3,6 +3,12 @@
 **Updated:** 2026-11-17
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## shadcn/ui migration, phase 5 dialogs and confirmations (2026-11-17)
+
+Project creation now uses the shared Base UI Dialog composition with its existing form, validation, and busy behavior. Unsaved notebook edits before a project change and Notebook menu deletions now use a shared Base UI AlertDialog with explicit Cancel and confirm actions. Cancel receives initial focus; destructive prompts state the consequence and do not dismiss on outside press. The dialog surface, backdrop, spacing, footer, width, and overflow use design-system tokens. The shared Dialog exports root, trigger, portal, backdrop, popup, title, description, and close primitives; Base UI supports controlled and uncontrolled roots. Native file/folder pickers and the inline D-D Notebook delete confirmation remain unchanged. There is no current settings dialog or source-deletion flow. No dependency or backend change was made. ADR 0010 and `DESIGN_SYSTEM.md` record the outcome.
+
+**Checks:** In `apps/desktop`, `./node_modules/.bin/tsc.cmd --noEmit` passed and `node tests/design-system.cjs` passed. `git diff --check` found no whitespace errors. The PowerShell `npx` shim was blocked by execution policy before the direct TypeScript invocation passed. A full build and test suite were not run for this frontend-only change. Native WebView2 focus entry/trap/restoration, Escape, outside-click dismissal, keyboard navigation, action behavior, narrow-window overflow, and overlay stacking have not been manually checked on this change.
+
 ## shadcn/ui migration, phase 4 action menus (2026-11-17)
 
 Notebook Home row actions, the editor's + Cell menu, and cell actions now use one token-styled shared Base UI dropdown component. Menu items and separators share the elevated surface, small radius, 28 px minimum item height, highlighted, disabled, and destructive treatments. Popups portal to the document body, use fixed positioning and trigger-end alignment, and sit above the sticky Notebook toolbar. Notebook click and shortcut handlers no longer receive portalled menu events. The Rename field regains focus after the menu closes. Shortcuts and Execution details remain native informational disclosures. There is no existing right-click context menu, checkbox/radio menu item, or submenu. No dependency or backend change was made. ADR 0010 and `DESIGN_SYSTEM.md` record the outcome.

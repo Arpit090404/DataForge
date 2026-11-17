@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { Button, IconButton } from './components/ui/button';
 import { Input } from './components/ui/input';
+import { ConfirmationDialog, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './components/ui/dialog';
 import { Select } from './components/ui/select';
 import NotebookWorkspace from './Notebook';
 import {
@@ -48,11 +49,10 @@ function shortNumber(value: number | null): string {
 }
 
 function ProjectDialog({ onClose, onCreate, busy }: { onClose: () => void; onCreate: (name: string, location: string) => Promise<void>; busy: boolean }) {
-  const ref = useRef<HTMLDialogElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [error, setError] = useState('');
-  useEffect(() => { ref.current?.showModal(); }, []);
   async function pickFolder() {
     try {
       const result = await open({ directory: true, multiple: false, title: 'Choose parent folder for new project' });
@@ -65,18 +65,20 @@ function ProjectDialog({ onClose, onCreate, busy }: { onClose: () => void; onCre
     setError('');
     try { await onCreate(name.trim(), location); } catch (e) { setError(errorMessage(e)); }
   }
-  return <dialog ref={ref} className="project-dialog" onCancel={e => { e.preventDefault(); if (!busy) onClose(); }}>
-    <div className="dialog-heading"><div><span className="eyebrow">NEW WORKSPACE</span><h2>Create project</h2></div><IconButton label="Close" onClick={onClose} disabled={busy}><X size={16} /></IconButton></div>
-    <p className="dialog-copy">Choose where DataForge will keep this project's metadata. Your source files stay in their original locations.</p>
+  return <Dialog open onOpenChange={next => { if (!next && !busy) onClose(); }} disablePointerDismissal>
+    <DialogContent className="project-dialog" initialFocus={nameRef}>
+    <DialogHeader><div><span className="eyebrow">NEW WORKSPACE</span><DialogTitle>Create project</DialogTitle></div><IconButton label="Close" onClick={onClose} disabled={busy}><X size={16} /></IconButton></DialogHeader>
+    <DialogBody><DialogDescription>Choose where DataForge will keep this project's metadata. Your source files stay in their original locations.</DialogDescription></DialogBody>
     <form onSubmit={submit}>
       <label className="field-label" htmlFor="project-name">Project name</label>
-      <Input id="project-name" autoFocus maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="Quarterly research" disabled={busy} />
+      <Input ref={nameRef} id="project-name" maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="Quarterly research" disabled={busy} />
       <label className="field-label" htmlFor="project-location">Parent folder</label>
       <div className="folder-field"><Input id="project-location" value={location} readOnly placeholder="Choose a folder" /><Button type="button" variant="secondary" onClick={pickFolder} disabled={busy}>Browse</Button></div>
       {error && <div className="inline-error" role="alert"><CircleAlert size={16}/>{error}</div>}
-      <div className="dialog-actions"><Button type="button" variant="text" onClick={onClose} disabled={busy}>Cancel</Button><Button type="submit" variant="primary" loading={busy}>{busy ? 'Creating…' : 'Create project'}<ArrowRight size={16}/></Button></div>
+      <DialogFooter><Button type="button" variant="text" onClick={onClose} disabled={busy}>Cancel</Button><Button type="submit" variant="primary" loading={busy}>{busy ? 'Creating…' : 'Create project'}<ArrowRight size={16}/></Button></DialogFooter>
     </form>
-  </dialog>;
+    </DialogContent>
+  </Dialog>;
 }
 
 export default function App() {
@@ -96,6 +98,7 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [notebookSidebarOpen, setNotebookSidebarOpen] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [pendingProject, setPendingProject] = useState<'new' | 'open' | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestSerial = useRef(0);
@@ -121,7 +124,6 @@ export default function App() {
   }
 
   async function openProject() {
-    if (notebookDirty && !window.confirm('Discard unsaved notebook edits and open another project?')) return;
     setError(null);
     try {
       const path = await open({ directory: true, multiple: false, title: 'Open a DataForge project folder' });
@@ -130,6 +132,19 @@ export default function App() {
       activate(await invoke<ProjectState>('open_project', { path }));
     } catch (e) { setError(errorMessage(e)); }
     finally { setBusy(null); }
+  }
+
+  function requestProject(next: 'new' | 'open') {
+    if (notebookDirty) setPendingProject(next);
+    else if (next === 'new') setShowCreate(true);
+    else void openProject();
+  }
+
+  function confirmProject() {
+    const next = pendingProject;
+    setPendingProject(null);
+    if (next === 'new') setShowCreate(true);
+    else if (next === 'open') void openProject();
   }
 
   async function refreshDatasets() {
@@ -191,7 +206,7 @@ export default function App() {
     <header className="topbar">
       <div className="brand"><div className="brand-mark"><span/><span/><span/><span/></div><span>DataForge</span><span className="brand-divider"/><span className="app-kind">WORKSPACE</span></div>
       <div className="top-center"><span className="project-indicator"/><span className="top-project-name">{project?.name ?? 'No project open'}</span>{project && <ChevronDown size={14} className="muted-icon"/>}</div>
-      <div className="top-actions"><button className="top-link" onClick={() => { if (!notebookDirty || window.confirm('Discard unsaved notebook edits and create another project?')) setShowCreate(true); }}>New project</button><button className="top-link" onClick={openProject}>Open project</button>{!notebookMode && <><span className="top-separator"/><IconButton label={inspectorOpen ? 'Hide inspector' : 'Show inspector'} onClick={() => setInspectorOpen(!inspectorOpen)}>{inspectorOpen ? <PanelRightClose size={16}/> : <PanelRightOpen size={16}/>}</IconButton></>}</div>
+      <div className="top-actions"><button className="top-link" onClick={() => requestProject('new')}>New project</button><button className="top-link" onClick={() => requestProject('open')}>Open project</button>{!notebookMode && <><span className="top-separator"/><IconButton label={inspectorOpen ? 'Hide inspector' : 'Show inspector'} onClick={() => setInspectorOpen(!inspectorOpen)}>{inspectorOpen ? <PanelRightClose size={16}/> : <PanelRightOpen size={16}/>}</IconButton></>}</div>
     </header>
     <div className={`body-grid ${inspectorOpen && !notebookMode ? '' : 'inspector-hidden'}${notebookMode && !notebookSidebarOpen ? ' sidebar-hidden' : ''}`}>
       {(!notebookMode || notebookSidebarOpen) && <aside className="left-sidebar" aria-label="Workspace navigation">
@@ -225,6 +240,7 @@ export default function App() {
       {inspectorOpen && !notebookMode && <aside className="inspector" aria-label="Context inspector"><div className="inspector-header"><span>INSPECTOR</span><IconButton label="Hide inspector" onClick={() => setInspectorOpen(false)}><X size={16}/></IconButton></div>{selected ? <DatasetInspector dataset={selected} inspection={inspection} execution={inspectedExecution?.dataset_id === selected.id ? inspectedExecution : null}/> : <div className="inspector-empty"><div className="inspector-empty-icon"><Search size={20}/></div><strong>Nothing selected</strong><p>Select a source to see its details and column profile.</p></div>}</aside>}
     </div>
     {showCreate && <ProjectDialog onClose={() => setShowCreate(false)} onCreate={createProject} busy={!!busy}/>}
+    <ConfirmationDialog open={pendingProject !== null} title="Discard unsaved notebook edits?" description={`Your unsaved notebook edits will be lost if you ${pendingProject === 'new' ? 'create' : 'open'} another project.`} confirmLabel="Discard edits" destructive onCancel={() => setPendingProject(null)} onConfirm={confirmProject}/>
   </div>;
 }
 

@@ -3,6 +3,7 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from './components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
+import { ConfirmationDialog } from './components/ui/dialog';
 import { Input } from './components/ui/input';
 import { Select } from './components/ui/select';
 import { Textarea } from './components/ui/textarea';
@@ -65,6 +66,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [deleteArmed, setDeleteArmed] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ kind: 'notebook' | 'cell'; id: string; title?: string } | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cellRefs = useRef<Record<string, HTMLElement | null>>({});
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -137,6 +139,13 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
     if (decision === 'delete') { clearDelete(); void action(() => remove(id)); return; }
     clearDelete(); setDeleteArmed(id); deleteTimer.current = setTimeout(() => setDeleteArmed(null), 1500);
   }
+  function confirmDelete() {
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (!target) return;
+    if (target.kind === 'cell') void action(() => remove(target.id));
+    else void action(async () => { await saveHomeRename(); await invoke('delete_notebook', { id: target.id }); await refresh(); });
+  }
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!active || !notebook || busy) return;
     const target = event.target as HTMLElement;
@@ -175,7 +184,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
         <DropdownMenu><DropdownMenuTrigger className="notebook-menu-trigger notebook-cell-menu" aria-label={`Actions for ${item.title}`}>⋯</DropdownMenuTrigger><DropdownMenuContent>
           <DropdownMenuItem disabled={busy || renamingId === item.id} onClick={() => void action(async () => { await saveHomeRename(); setRenamingId(item.id); setRenameTitle(item.title); })}>Rename</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem destructive disabled={busy} onClick={() => { if (window.confirm(`Delete “${item.title}” and all its cells?`)) void action(async () => { await saveHomeRename(); await invoke('delete_notebook', { id: item.id }); await refresh(); }); }}>Delete</DropdownMenuItem>
+          <DropdownMenuItem destructive disabled={busy} onClick={() => setPendingDelete({ kind: 'notebook', id: item.id, title: item.title })}>Delete</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>
       </div>)}{!visibleNotebooks.length && <div className="notebook-home-empty"><BookOpen size={28}/><h2>{notebooks.length ? 'No matching notebooks' : 'Your notebooks start here'}</h2><p>{notebooks.length ? 'Try a different search.' : 'Write text and code, then add saved analytical results as your investigation grows.'}</p>{!notebooks.length && <Button variant="primary" disabled={busy} onClick={() => void action(async () => { const next = await invoke<Notebook>('create_notebook', { title: 'Untitled Notebook' }); setNotebook(next); setTitle(next.title); await refresh(); })}>Create Notebook</Button>}</div>}</div>
     </> : <>
@@ -196,7 +205,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
               <DropdownMenuItem disabled={busy || index === notebook.blocks.length - 1} onClick={() => void action(() => move(block.id, 'down'))}>Move down</DropdownMenuItem>
               {block.kind !== 'result' && <DropdownMenuItem onClick={() => { setSelectedId(block.id); editing ? commandMode() : setEditingId(block.id); }}>{editing ? 'Preview' : 'Edit'}</DropdownMenuItem>}
               <DropdownMenuSeparator />
-              <DropdownMenuItem destructive disabled={busy} onClick={() => { if (window.confirm('Delete this cell?')) void action(() => remove(block.id)); }}>Delete</DropdownMenuItem>
+              <DropdownMenuItem destructive disabled={busy} onClick={() => setPendingDelete({ kind: 'cell', id: block.id })}>Delete</DropdownMenuItem>
             </DropdownMenuContent></DropdownMenu></div>
           {block.kind === 'result' ? block.execution_id ? <ResultBlock executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)}/> : <p>Execution reference unavailable.</p>
             : editing ? <div className={block.kind === 'code' ? 'notebook-code-frame' : 'notebook-text-frame'}>{block.kind === 'code' && <span className="notebook-code-prompt" aria-label="Code not run">[ ]</span>}<Textarea ref={editorRef} rows={Math.max(3, draft.split('\n').length + 1)} className={block.kind === 'code' ? 'notebook-code-editor' : ''} aria-label={`${label} cell ${index + 1} editor`} value={draft} readOnly={busy} spellCheck={block.kind === 'markdown'} onKeyDown={event => { if (block.kind !== 'code' || event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return; event.preventDefault(); const [value, start, end] = indentCode(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd); setDrafts(current => ({ ...current, [block.id]: value })); cursor.current[block.id] = [start, end]; requestAnimationFrame(() => editorRef.current?.setSelectionRange(start, end)); }} onSelect={event => { cursor.current[block.id] = [event.currentTarget.selectionStart, event.currentTarget.selectionEnd]; }} onChange={event => { const value = event.target.value; setDrafts(current => { const next = { ...current }; if (value === block.content) delete next[block.id]; else next[block.id] = value; return next; }); }}/>{block.kind === 'code' && <div className="notebook-code-output">No output · execution unavailable</div>}</div>
@@ -206,5 +215,6 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
       })}<InsertionSlot disabled={busy} insert={kind => void action(() => insert(kind, notebook.blocks.at(-1)?.id, notebook.blocks.length ? 'after' : undefined))}/>{!notebook.blocks.length && <div className="notebook-empty-hint"><p>Add a cell to begin this notebook.</p><div><Button disabled={busy} onClick={() => void action(() => insert('code'))}>+ Code</Button><Button disabled={busy} onClick={() => void action(() => insert('markdown'))}>+ Text</Button></div></div>}</div>
       {!!executions.length && <div className="notebook-add"><label htmlFor="execution-select">Saved execution</label><Select id="execution-select" value={executionId} onChange={e => setExecutionId(e.target.value)}><option value="">Choose an execution</option>{executions.map(item => <option key={item.id} value={item.id}>{new Date(item.started_at).toLocaleString()} · {item.operation_type} · {item.id.slice(0, 8)}</option>)}</Select><Button disabled={busy || !succeeded} onClick={() => void action(async () => { const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId }); await reload(); setSelectedId(block.id); focusCell(block.id); })}>Add result</Button></div>}
     </>}
+    <ConfirmationDialog open={pendingDelete !== null} title={pendingDelete?.kind === 'notebook' ? 'Delete notebook?' : 'Delete cell?'} description={pendingDelete?.kind === 'notebook' ? `Delete “${pendingDelete.title}” and all its cells? This cannot be undone.` : 'Delete this cell? This cannot be undone.'} confirmLabel="Delete" destructive onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete}/>
   </div>;
 }
