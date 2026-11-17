@@ -1,0 +1,20 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  --color-background: var(--color-app-bg);
+  --color-foreground: var(--color-text);
+  --color-primary: var(--color-action);
+  --color-primary-foreground: var(--color-action-text);
+  --color-secondary: var(--color-surface-elevated);
+  --color-secondary-foreground: var(--color-text);
+  --color-muted: var(--color-surface-secondary);
+  --color-muted-foreground: var(--color-text-muted);
+  --color-destructive-foreground: var(--color-error-surface);
+  --color-ring: var(--color-focus-ring);
+  --color-input: var(--color-input-border);
+  --font-sans: var(--font-family-ui);
+  --font-mono: var(--font-family-code);
+  --spacing: var(--space-1);
+}

@@ -22,7 +22,8 @@ Before implementation, read relevant specs and inspect existing code. Planned fe
 - DataForge is an investigation workspace, not just a chatbot or chart generator.
 - Chat, Notebook, and Dashboard share investigation state and artifacts.
 - Preserve the approved left navigation/sources, central workspace, contextual right inspector, and bottom composer layout.
-- Customize shadcn/ui; do not use its defaults without design review.
+- Use the repository-owned UI component foundation defined in `spec/DESIGN_SYSTEM.md`; see ADR 0010 for the current styling decision.
+- All new or modified UI must use the tokens and shared components in `spec/DESIGN_SYSTEM.md`. Do not invent colors, dimensions, radii, spacing, typography, or variants when a documented rule applies. Define a new pattern in the specification and shared foundation before using it across screens.
 - Keep the application useful without an agent.
 - Do not imply provider capabilities that have not been verified.
 

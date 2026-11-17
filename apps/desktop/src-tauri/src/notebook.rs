@@ -255,10 +255,12 @@ mod tests {
         let last=add_block_inner(&project,&note.id,"markdown","Last",None,None,None,None).unwrap();
         let above=add_block_inner(&project,&note.id,"markdown","Above",None,Some(&last.id),Some("before"),None).unwrap();
         let below=add_block_inner(&project,&note.id,"markdown","Below",None,Some(&first.id),Some("after"),None).unwrap();
+        let first_edge=add_block_inner(&project,&note.id,"code","",None,Some(&first.id),Some("before"),Some("python")).unwrap();
+        let last_edge=add_block_inner(&project,&note.id,"code","",None,Some(&last.id),Some("after"),Some("sql")).unwrap();
         let reopened=get_notebook_inner(&project,&note.id).unwrap();
-        assert_eq!(reopened.blocks.iter().map(|b|b.id.as_str()).collect::<Vec<_>>(),vec![first.id.as_str(),below.id.as_str(),above.id.as_str(),last.id.as_str()]);
+        assert_eq!(reopened.blocks.iter().map(|b|b.id.as_str()).collect::<Vec<_>>(),vec![first_edge.id.as_str(),first.id.as_str(),below.id.as_str(),above.id.as_str(),last.id.as_str(),last_edge.id.as_str()]);
         assert_eq!(add_block_inner(&project,&note.id,"markdown","Bad",None,Some("missing"),Some("after"),None).unwrap_err().code,"block_missing");
-        assert_eq!(get_notebook_inner(&project,&note.id).unwrap().blocks.len(),4);
+        assert_eq!(get_notebook_inner(&project,&note.id).unwrap().blocks.len(),6);
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]

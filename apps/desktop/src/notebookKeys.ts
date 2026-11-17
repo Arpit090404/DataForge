@@ -19,3 +19,8 @@ export function decideDeletePress(armedId: string | null, selectedId: string, re
   if (repeat) return 'ignore';
   return armedId === selectedId ? 'delete' : 'arm';
 }
+
+export function indentCode(text: string, start: number, end: number): [string, number, number] {
+  // shortcut: Tab indents at the selection start, upgrade if multi-line indentation becomes necessary.
+  return [text.slice(0, start) + '  ' + text.slice(start), start + 2, end + 2];
+}
