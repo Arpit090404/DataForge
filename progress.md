@@ -3,6 +3,16 @@
 **Updated:** 2026-11-17
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Product UI redesign, Task 1.1 left sidebar resizing (2026-11-17)
+
+The App shell now owns one 248 px left-sidebar width for Chat/Dashboard and Notebook, clamps it to 210–340 px, and restores/persists it with local browser storage. The live value drives every visible left grid track, including narrow-window rules; Notebook collapse still removes the left track. An 8 px full-height inner-edge separator replaces CSS horizontal resize. It uses pointer capture, prevents selection during drag, shows hover/focus cues, exposes width values to assistive technology, supports Arrow/Shift+Arrow/Home/End, and resets to 248 px on double-click. No right inspector, mode-switcher, title-bar, analytics, database, or backend behavior changed.
+
+**Files changed:** `apps/desktop/src/App.tsx`, `apps/desktop/src/styles.css`, `spec/DESIGN_SYSTEM.md`, `spec/REDESIGN_SPEC.md`, `spec/SHELL_AUDIT.md`, and this file.
+
+**Checks:** `./node_modules/.bin/tsc.cmd --noEmit` and `node tests/design-system.cjs` passed in `apps/desktop`. A focused source assertion found seven grid rules consuming `--sidebar-width` and no remaining `resize:horizontal` or fixed left tracks; `git diff --check` passed. A browser preview at 1280 × 800 showed the initial sidebar width, grid track, central offset, accessibility separator, and local storage value all at 248 px. Browser drag/click automation timed out; the fallback browser controller was unavailable, so pointer drag, keyboard steps, double-click, persistence across reload, min/max behavior, Notebook mode, and native WebView2 behavior were **not** directly verified. A sandboxed Vite launch failed to read its config; the authorized local dev-server launch succeeded. No full build or test suite ran.
+
+**Remaining:** Run a short native Windows interaction check for drag across the full edge, clamping, keyboard and reset actions, width restoration after restart, and Notebook/sidebar-collapse layout before treating the interaction as fully verified. Task 1.2 workspace positioning has not started.
+
 ## Product UI redesign specification and shell audit (2026-11-17)
 
 The Hybrid + Balanced redesign initiative is documented in `spec/REDESIGN_SPEC.md`; source-backed shell findings and a prioritized implementation sequence are in `spec/SHELL_AUDIT.md`. The current shell uses fixed CSS grid tracks, a CSS-resizable left aside, a native Windows title bar plus a WebView top bar, a mode switcher inside the workspace toolbar, and duplicate inspector toggles. The Notebook already has a dedicated Home/Editor and an honest unavailable runtime; Chat and Dashboard remain empty/unavailable rather than implemented agent or chart workspaces. JetBrains Nerd Font is not packaged or referenced in the frontend. These are audit findings and design targets, not implemented changes.

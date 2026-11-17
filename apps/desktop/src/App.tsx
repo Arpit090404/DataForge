@@ -1,6 +1,6 @@
 import { Badge } from './components/ui/badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from './components/ui/table';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { Button, IconButton } from './components/ui/button';
@@ -29,6 +29,22 @@ type Aggregation = { op: 'count' | 'sum' | 'average' | 'min' | 'max' | 'distinct
 type AnalyticsRequest = { kind: 'rows' | 'group'; filters?: FilterExpr; sort?: SortSpec[]; group_by?: string[]; aggregations?: Aggregation[]; limit?: number; offset?: number };
 type Execution = { id: string; dataset_id: string; operation_type: string; parameters: string; started_at: string; completed_at: string | null; status: string; result_row_count: number | null; error_summary: string | null; duckdb_version: string | null; source_fingerprint: string };
 type AnalyticsResult = { execution: Execution; columns: { name: string; data_type: string }[]; rows: (string | null)[][]; total_rows: number | null; has_more: boolean };
+
+const SIDEBAR_WIDTH_DEFAULT = 248;
+const SIDEBAR_WIDTH_MIN = 210;
+const SIDEBAR_WIDTH_MAX = 340;
+const SIDEBAR_WIDTH_KEY = 'dataforge:left-sidebar-width';
+
+function clampSidebarWidth(value: number): number {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, value));
+}
+
+function storedSidebarWidth(): number {
+  try {
+    const value = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    return Number.isFinite(value) && value > 0 ? clampSidebarWidth(value) : SIDEBAR_WIDTH_DEFAULT;
+  } catch { return SIDEBAR_WIDTH_DEFAULT; }
+}
 
 function errorMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
@@ -99,6 +115,43 @@ export default function App() {
   }, [notebookDirty]);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [notebookSidebarOpen, setNotebookSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
+  const [resizingSidebar, setResizingSidebar] = useState(false);
+  const sidebarDrag = useRef<{ pointerId: number; x: number; width: number } | null>(null);
+  useEffect(() => {
+    try { window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth)); } catch { /* Layout remains usable when storage is unavailable. */ }
+  }, [sidebarWidth]);
+
+  function onSidebarPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    sidebarDrag.current = { pointerId: event.pointerId, x: event.clientX, width: sidebarWidth };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setResizingSidebar(true);
+  }
+
+  function onSidebarPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = sidebarDrag.current;
+    if (drag?.pointerId === event.pointerId) setSidebarWidth(clampSidebarWidth(drag.width + event.clientX - drag.x));
+  }
+
+  function onSidebarPointerEnd(event: PointerEvent<HTMLDivElement>) {
+    if (sidebarDrag.current?.pointerId !== event.pointerId) return;
+    sidebarDrag.current = null;
+    setResizingSidebar(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  function onSidebarKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 20 : 10;
+    let width: number;
+    if (event.key === 'ArrowLeft') width = sidebarWidth - step;
+    else if (event.key === 'ArrowRight') width = sidebarWidth + step;
+    else if (event.key === 'Home') width = SIDEBAR_WIDTH_MIN;
+    else if (event.key === 'End') width = SIDEBAR_WIDTH_MAX;
+    else return;
+    event.preventDefault();
+    setSidebarWidth(clampSidebarWidth(width));
+  }
   const [showCreate, setShowCreate] = useState(false);
   const [pendingProject, setPendingProject] = useState<'new' | 'open' | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -204,7 +257,7 @@ export default function App() {
 
   const notebookMode = !!project && mode === 'Notebook' && !selected;
 
-  return <div className={`app-shell${notebookMode ? ' notebook-mode' : ''}`}>
+  return <div className={`app-shell${notebookMode ? ' notebook-mode' : ''}${resizingSidebar ? ' resizing-sidebar' : ''}`} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
     <header className="topbar">
       <div className="brand"><div className="brand-mark"><span/><span/><span/><span/></div><span>DataForge</span><span className="brand-divider"/><span className="app-kind">WORKSPACE</span></div>
       <div className="top-center"><span className="project-indicator"/><span className="top-project-name">{project?.name ?? 'No project open'}</span>{project && <ChevronDown size={14} className="muted-icon"/>}</div>
@@ -225,6 +278,7 @@ export default function App() {
           <div className="sources-footer"><button className="add-source" onClick={registerCsv} disabled={!project || !!busy}><FilePlus2 size={16}/> Add CSV source</button></div>
         </div>
         <div className="sidebar-footer"><span className="local-dot"/> Local workspace <span className="version">v0.1</span></div>
+        <div className="sidebar-resize-handle" role="separator" aria-label="Resize left sidebar" aria-orientation="vertical" aria-valuemin={SIDEBAR_WIDTH_MIN} aria-valuemax={SIDEBAR_WIDTH_MAX} aria-valuenow={sidebarWidth} aria-valuetext={`${sidebarWidth} pixels`} tabIndex={0} onPointerDown={onSidebarPointerDown} onPointerMove={onSidebarPointerMove} onPointerUp={onSidebarPointerEnd} onPointerCancel={onSidebarPointerEnd} onLostPointerCapture={onSidebarPointerEnd} onDoubleClick={() => setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)} onKeyDown={onSidebarKeyDown}/>
       </aside>}
 
       <main className="main-workspace">
