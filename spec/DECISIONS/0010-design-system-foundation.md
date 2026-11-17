@@ -1,6 +1,6 @@
 # ADR 0010: Repository-owned design system foundation
 
-- Status: Accepted, incremental shadcn/ui migration through Phase 3
+- Status: Accepted, incremental shadcn/ui migration through Phase 4
 - Date: 2026-11-17
 - Supersedes: The original all-at-once Tailwind CSS and customized shadcn/ui direction in ADR 0001. Its Tauri, React, TypeScript, and Rust direction remains accepted.
 
@@ -21,6 +21,10 @@ Tailwind Preflight is omitted during this pilot to protect existing layout, Mark
 ## Phase 3 outcome: form controls
 
 The shared Input, Textarea, and Select now use the same token-driven Tailwind form styles. Input uses the shadcn Base UI Input primitive. Textarea remains a native textarea because Notebook editing depends on its selection and cursor APIs. Select remains a native select because every current caller uses simple options and the native `onChange(event.target.value)` contract; its OS popup avoids custom portal and clipping behavior in WebView2. This is one shared component foundation with different native/primitive choices for concrete interaction needs. No new dependency or caller API change was needed. Menus and dialogs remain outside this phase.
+
+## Phase 4 outcome: action menus
+
+Notebook Home actions, the editor's + Cell menu, and cell actions now use one repository-owned dropdown component composed from Base UI Menu primitives. Items and separators share semantic tokens, and destructive and disabled states are explicit. The popup is portalled to the document body, fixed-positioned, right-aligned to its trigger, and uses Base UI collision and dismissal behavior. Notebook keyboard and click handlers do not receive popup events. The Shortcuts and Execution details disclosures remain native `details` elements because they are informational. No right-click context menu, checkbox/radio item, or submenu currently exists to migrate. No dependency or backend change was needed. Native WebView2 interaction remains a verification step unless separately recorded in `progress.md`.
 
 ## Consequences
 
