@@ -1,3 +1,4 @@
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from './components/ui/table';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -45,7 +46,7 @@ function ResultBlock({ executionId, execution: historyExecution }: { executionId
     <div className="notebook-result-meta"><strong>{execution?.operation_type === 'group' ? 'Group and summarize' : 'Filter and view rows'}</strong><span>{execution?.dataset_id ?? 'Source unavailable'} · {execution?.status ?? 'Saved execution'} · {execution?.result_row_count ?? '—'} rows</span>{execution && <small>{new Date(execution.started_at).toLocaleString()} · {execution.duckdb_version ? `DuckDB ${execution.duckdb_version}` : 'Engine unavailable'}</small>}</div>
     {!attempt || error ? <div className="notebook-unavailable">{error && <p role="status">Result unavailable: {error}</p>}<Button size="small" onClick={() => setAttempt(value => value + 1)}>{error ? 'Retry result' : 'Load result'}</Button></div>
       : !result ? <p className="notebook-muted">Loading saved execution…</p>
-        : <><div className="table-scroll"><table className="data-table"><thead><tr>{result.columns.map((column, i) => <th key={i}><span>{column.name}</span><small>{column.data_type}</small></th>)}</tr></thead><tbody>{result.rows.map((row, i) => <tr key={i}>{row.map((value, j) => <td key={j}>{value ?? <span className="null-value">null</span>}</td>)}</tr>)}</tbody></table>{!result.rows.length && <div className="table-empty">No rows matched this operation.</div>}</div><p className="notebook-muted">Showing {result.rows.length} rows{result.has_more ? ' · more rows available in the original operation' : ''}. Loaded from the pinned representation.</p></>}
+        : <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div><p className="notebook-muted">Showing {result.rows.length} rows{result.has_more ? ' · more rows available in the original operation' : ''}. Loaded from the pinned representation.</p></>}
     <details><summary>Execution details</summary><small>Execution ID: {executionId}{execution && <> · Fingerprint: {execution.source_fingerprint}</>}</small>{execution && <pre>{execution.parameters}</pre>}</details>
   </div>;
 }

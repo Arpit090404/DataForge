@@ -1,6 +1,6 @@
 # ADR 0010: Repository-owned design system foundation
 
-- Status: Accepted, incremental shadcn/ui migration through Phase 6
+- Status: Accepted, incremental shadcn/ui migration through Phase 7
 - Date: 2026-11-17
 - Supersedes: The original all-at-once Tailwind CSS and customized shadcn/ui direction in ADR 0001. Its Tauri, React, TypeScript, and Rust direction remains accepted.
 
@@ -35,6 +35,10 @@ Project creation now uses a repository-owned Base UI Dialog composition with the
 The Notebook Shortcuts disclosure now uses a shared Base UI Popover with a body portal, fixed positioning, collision handling, and outside-press/Escape dismissal. Shared IconButton hints now use a Base UI Tooltip on hover and keyboard focus. A disabled icon button uses a hoverable wrapper so its existing explanatory hint can appear; it remains disabled and unfocusable. Both surfaces use DataForge tokens. Popovers stack below dialogs; tooltips are pointer-transparent and can appear above their own dialog controls. No new dependency or backend change was needed.
 
 The Chat/Notebook/Dashboard selector remains a native button group: selecting a source replaces the central view, and the selector does not own stable tab panels. Giving it tab roles would misstate its relationship to the workspace. Native `title` remains for truncated table values, source paths/fingerprints, and the Notebook runtime status because these are simple, non-shared text disclosures. Execution details remains a native disclosure.
+
+## Phase 7 outcome: tables and data display
+
+CSV preview, analytical results, and Notebook result replay now compose shared token-styled native Table, Header, Body, Footer, Row, Head, and Cell primitives. The existing scroll containers, sticky headers, bounded CSV preview, analytical pagination, and result replay behavior remain in place. TableEmpty replaces repeated empty table and history messages, and the source workspace and inspector use one ready/changed/missing Badge. No table library or dependency was added. Notebook Home and column profile remain custom grids for their current layout and actions. Sidebar dots, distinct screen empty layouts, and one-off loading messages remain contextual. No virtualization existed to migrate. No query, backend, or caller data contract changed.
 
 ## Consequences
 
