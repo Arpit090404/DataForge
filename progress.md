@@ -3,6 +3,14 @@
 **Updated:** 2026-11-17
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## shadcn/ui migration, phase 3 form controls (2026-11-17)
+
+The existing shared Input, Textarea, and Select now use token-driven Tailwind classes and preserve their native element props and refs. Input uses the Base UI Input primitive. Textarea remains native for Notebook cursor and selection handling; Select remains native for the existing simple-option and `onChange` contract. The shared field styles cover sizing, typography, hover, focus, disabled, placeholder, and invalid states. Redundant contextual padding and focus overrides were removed; specialized Notebook title, search, language, and code-editor rules remain. There is still one shared component system. No new dependency, Rust change, or caller migration was needed. ADR 0010 and `DESIGN_SYSTEM.md` record this phase.
+
+**Checks:** In `apps/desktop`, `node tests/notebook-home.cjs`, `node tests/notebook-keys.cjs`, `node tests/markdown.cjs`, and `npm run build` passed; the build includes design-system and new form-control checks plus `tsc --noEmit`. The final `npm run tauri:build -- --debug` passed and repeated the frontend build on the final source. Production assets changed from Phase 2's 52,112-byte CSS and 325,355-byte JS to 52,022-byte CSS and 331,634-byte JS, uncompressed. `git diff --check` found no whitespace errors.
+
+**Native verification:** The rebuilt debug executable launched in WebView2. In a disposable project, Chat, the project-creation dialog, Notebook Home, and Notebook Editor rendered at the normal and 900×650 window sizes. The project-name Input accepted keyboard text; the folder Input retained its read-only behavior and showed a keyboard focus ring. Notebook search and sort aligned at the small size. A text cell accepted keyboard input. The native language Select changed to SQL by keyboard. A code cell accepted text and Tab inserted spaces while focus stayed in its editor. The focused code editor and controls remained within the smaller layout. No visible regression was found in these checked screens. Other forms and source-registration flows were not exercised in this phase.
+
 ## shadcn/ui migration pilot, phases 1–2 (2026-11-17)
 
 Tailwind CSS v4 is integrated through Vite with an official shadcn `components.json` configured for Base UI and Lucide. The existing CSS variables remain the theme source. Tailwind Preflight is omitted so global resets do not change application layouts, Markdown, forms, or notebook editors. The existing shared Button and IconButton now use the Base UI Button primitive and token-driven Tailwind variants in place; callers and public variants/sizes remain. Input, Select, Textarea, dialogs, menus, tables, and Rust code were not migrated. ADR 0010 and `DESIGN_SYSTEM.md` record the approved incremental direction.

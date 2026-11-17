@@ -11,9 +11,7 @@ const rules = css.slice(tokens.length);
 for (const token of ['app-bg', 'sidebar', 'surface', 'surface-secondary', 'surface-elevated', 'hover', 'selected', 'text', 'text-secondary', 'text-muted', 'border', 'input-border', 'focus-ring', 'action', 'destructive', 'success', 'warning', 'error']) {
   assert.match(tokens, new RegExp(`--color-${token}:`), `Missing semantic color ${token}`);
 }
-for (const control of ['input', 'select', 'textarea']) {
-  assert.match(rules, new RegExp(`\\.ui-${control}\\b`), `Missing shared ${control} styling`);
-}
+assert.doesNotMatch(rules, /^\.ui-(?:input|select|textarea)(?:\s*,|\s*\{)/m, 'Legacy shared form styles must not compete with Tailwind');
 assert.match(tailwind, /@import "tailwindcss\/utilities\.css"/, 'Tailwind utilities are missing');
 assert.doesNotMatch(tailwind, /preflight\.css|@import "tailwindcss"/, 'Preflight must stay disabled during the pilot');
 assert.match(tailwind, /--color-primary: var\(--color-action\)/, 'Tailwind must use the existing action token');

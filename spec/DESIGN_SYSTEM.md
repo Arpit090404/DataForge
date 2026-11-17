@@ -1,14 +1,14 @@
 # DataForge design system
 
-**Status:** Active desktop UI contract. Semantic tokens and unmigrated control styles live in `apps/desktop/src/styles.css`; Tailwind theme mappings live in `apps/desktop/src/tailwind.css`; React primitives live in `apps/desktop/src/components/ui/`. See ADR 0010.
+**Status:** Active desktop UI contract. Semantic tokens and contextual screen styles live in `apps/desktop/src/styles.css`; Tailwind theme mappings live in `apps/desktop/src/tailwind.css`; React primitives live in `apps/desktop/src/components/ui/`. See ADR 0010.
 
 ## Principles and foundation
 
 Use a quiet, compact dark desktop language: neutral surfaces, clear hierarchy, thin separators, predictable focus, and subtle hover changes. Avoid gradients, glow, oversized cards, and controls that imply unavailable functionality. Chat and Notebook keep their distinct layouts in `UX_SPEC.md` while sharing control rules.
 
-The implemented stack is React, TypeScript, Tailwind CSS v4, custom CSS, shadcn/ui project configuration with Base UI, and Lucide. Existing CSS variables are the source of truth; Tailwind maps semantic roles to them without copying color values. The shared Button and IconButton use the Base UI Button primitive with DataForge variants and dimensions. Input, Select, Textarea, menus, dialogs, tables, and application layouts retain their existing CSS and behavior during this pilot. Tailwind Preflight is omitted to protect those screens. Add a new primitive only for repeated current behavior, and do not create a parallel Button system.
+The implemented stack is React, TypeScript, Tailwind CSS v4, custom CSS, shadcn/ui project configuration with Base UI, and Lucide. Existing CSS variables are the source of truth; Tailwind maps semantic roles to them without copying color values. The shared Button and IconButton use the Base UI Button primitive. Input uses the Base UI Input primitive. Textarea and Select retain native elements with shared token-driven Tailwind styling; all existing Select callers use simple option lists and native change events. Menus, dialogs, tables, and application layouts retain their existing CSS and behavior. Tailwind Preflight is omitted to protect those screens. Add a new primitive only for repeated current behavior, and do not create parallel control systems.
 
-Review shadcn CLI output before adding a component. Do not overwrite the adapted shared Button with the registry default; each new component must use this token contract and the selected Base UI foundation.
+Review shadcn CLI output before adding a component. Do not overwrite adapted shared controls with registry defaults; each new component must use this token contract and the selected Base UI foundation where an interaction primitive is needed.
 
 ## Semantic color tokens
 
@@ -66,14 +66,14 @@ Use `--radius-small` 3 px for menus/badges, `--radius-default` 4 px for controls
 
 ## Components, dimensions, and variants
 
-`Button`, `Input`, `Select`, and `Textarea` belong in `components/ui/`; use them for standard controls. Application layouts compose them. Keep native `details`, `dialog`, and table semantics where they work; equivalent menus, dialogs, and tables share token-driven styles. Button variants use Tailwind classes and the existing semantic variables; other controls remain CSS-styled until their approved migration phase. Add a new primitive only for repeated current behavior, including future popovers, tooltips, tabs, checkboxes, or switches. Do not add unused wrappers.
+`Button`, `Input`, `Select`, and `Textarea` belong in `components/ui/`; use them for standard controls. Application layouts compose them. Keep native `details`, `dialog`, and table semantics where they work; equivalent menus, dialogs, and tables share token-driven styles. Shared controls use Tailwind classes backed by existing semantic variables; screen-specific editor and layout rules remain in CSS. Add a new primitive only for repeated current behavior, including future popovers, tooltips, tabs, checkboxes, or switches. Do not add unused wrappers.
 
 | Control | Contract |
 | --- | --- |
 | Button | Small 28 px, default 36 px, large 44 px tall; content width and 12 px horizontal padding by default. Variants: primary, secondary, ghost/text, destructive, icon-only. Loading keeps size and announces progress. |
 | Icon button | Square `--control-height-icon` 28 px, with visible focus and an accessible name. |
-| Input and select | `--control-height-default` 36 px; same border, radius, padding, placeholder, focus, and disabled rules. Width follows context. |
-| Textarea | Same input border/radius and 12 px padding; height follows content or its editing context. |
+| Input and select | `--control-height-default` 36 px; same border, radius, 12 px horizontal padding, focus, disabled, and invalid rules. Width follows context. Select stays native for simple option lists and native keyboard/popup behavior. |
+| Textarea | Same input border/radius and 12 px padding; height and resizing follow content or its editing context. Long content stays within the available width. |
 | Menu and context menu | Elevated surface, border, small radius, 8 px item rhythm; hover/focus covers each item. |
 | Dialog | Elevated surface, large radius, 24 px padding, title hierarchy, labeled fields, explicit actions. Destructive consequences are stated in text. |
 | Table | Shared header type, row padding, border, hover, numeric alignment, and keyboard-visible actions; wide analytical output scrolls. |
@@ -84,6 +84,10 @@ Use `--control-height-small/default/large/icon` for those heights. Lucide is the
 ## Interaction and usage rules
 
 Every interactive control needs default, hover, active, focus-visible, disabled, and, where relevant, selected, loading, and destructive states. Hover changes a surface, not layout. Focus works by keyboard. Disabled controls remain identifiable. Honor `prefers-reduced-motion`; transitions are short and purposeful.
+
+Form controls retain native `required` and disabled semantics. Mark validation failures with `aria-invalid="true"` to use the error-border token, associate labels through `htmlFor`/`id` or an enclosing label, and connect field-level helper or error text with `aria-describedby` when present. A read-only field remains focusable and selectable unless a specific workflow requires otherwise.
+
+The notebook search field sits inside a separately bordered search container, and the notebook title, compact cell-language selector, and code/text editors have contextual padding and focus treatments. Standard project, analytics, rename, sort, and execution controls use the shared 12 px horizontal padding.
 
 Examples: `<Button variant="primary">Create project</Button>`, `<Button variant="ghost" size="small">Back</Button>`, `<Button variant="icon" aria-label="Hide sidebar">…</Button>`, and `<Input aria-label="Search notebooks" />`. Use the shared `Select` for standard choices. A notebook cell may have a specialized editor surface; its controls still use shared tokens and states.
 

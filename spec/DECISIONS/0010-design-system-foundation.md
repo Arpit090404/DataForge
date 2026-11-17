@@ -1,6 +1,6 @@
 # ADR 0010: Repository-owned design system foundation
 
-- Status: Accepted, amended for an incremental shadcn/ui migration pilot
+- Status: Accepted, incremental shadcn/ui migration through Phase 3
 - Date: 2026-11-17
 - Supersedes: The original all-at-once Tailwind CSS and customized shadcn/ui direction in ADR 0001. Its Tauri, React, TypeScript, and Rust direction remains accepted.
 
@@ -17,6 +17,10 @@ Keep the current React and CSS architecture. Centralize semantic CSS tokens and 
 Adopt Tailwind CSS v4 and official shadcn/ui project configuration incrementally, using shadcn's Base UI foundation and the existing Lucide icons. The semantic variables and component contracts in `spec/DESIGN_SYSTEM.md` remain authoritative. Keep application-specific layout CSS. The approved pilot covers the build/theme integration and migration of the existing shared Button and IconButton in place; Input, Select, Textarea, menus, dialogs, and other controls remain on their current implementation until separately migrated. Do not maintain parallel Button implementations.
 
 Tailwind Preflight is omitted during this pilot to protect existing layout, Markdown, and editor behavior. Generated shadcn components must be adapted to DataForge tokens and APIs before use; default shadcn colors and sizes are not the product design. Later phases require a review of native rendering, interaction behavior, and bundle cost.
+
+## Phase 3 outcome: form controls
+
+The shared Input, Textarea, and Select now use the same token-driven Tailwind form styles. Input uses the shadcn Base UI Input primitive. Textarea remains a native textarea because Notebook editing depends on its selection and cursor APIs. Select remains a native select because every current caller uses simple options and the native `onChange(event.target.value)` contract; its OS popup avoids custom portal and clipping behavior in WebView2. This is one shared component foundation with different native/primitive choices for concrete interaction needs. No new dependency or caller API change was needed. Menus and dialogs remain outside this phase.
 
 ## Consequences
 

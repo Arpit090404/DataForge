@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
-    "build": "node tests/design-system.cjs && tsc --noEmit && vite build",
+    "build": "node tests/design-system.cjs && node tests/form-controls.cjs && tsc --noEmit && vite build",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
