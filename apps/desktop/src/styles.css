@@ -206,3 +206,14 @@
 .welcome-icon svg,.mode-empty-icon svg,.notebook-home-empty>svg{width:var(--icon-size-hero);height:var(--icon-size-hero);stroke-width:var(--icon-stroke)}
 summary:focus-visible,select:focus-visible,textarea:focus-visible{outline:var(--focus-width) solid var(--color-focus-ring);outline-offset:2px}
 input[type="checkbox"]{accent-color:var(--color-accent)}
+
+.ui-dialog-portal{position:fixed;inset:0;z-index:60;display:grid;place-items:center;overflow-y:auto;padding:var(--space-4)}
+.ui-dialog-backdrop{position:fixed;inset:0;background:var(--color-backdrop)}
+.ui-dialog-popup{position:relative;z-index:1;width:min(440px,100%);max-height:calc(100vh - 2 * var(--space-4));overflow-y:auto;border:1px solid var(--color-input-border);border-radius:var(--radius-large);background:var(--color-surface-elevated);color:var(--color-text);padding:var(--space-section);box-shadow:0 20px 60px var(--color-shadow);outline:none}
+.ui-dialog-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3)}
+.ui-dialog-header h2{margin:var(--space-2) 0 0;font-size:var(--font-size-section);font-weight:600;letter-spacing:-.02em}
+.ui-confirmation-popup .ui-dialog-header h2{margin-top:0}
+.ui-dialog-body{margin-top:var(--space-4);color:var(--color-text-muted);font-size:var(--font-size-body);line-height:1.6;overflow-wrap:anywhere}
+.ui-dialog-body p{margin:0}
+.ui-dialog-footer{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-section)}
+.project-dialog.ui-dialog-popup{width:min(440px,100%);background:var(--color-surface-elevated)}

@@ -1,6 +1,6 @@
 # ADR 0010: Repository-owned design system foundation
 
-- Status: Accepted, incremental shadcn/ui migration through Phase 4
+- Status: Accepted, incremental shadcn/ui migration through Phase 5
 - Date: 2026-11-17
 - Supersedes: The original all-at-once Tailwind CSS and customized shadcn/ui direction in ADR 0001. Its Tauri, React, TypeScript, and Rust direction remains accepted.
 
@@ -25,6 +25,10 @@ The shared Input, Textarea, and Select now use the same token-driven Tailwind fo
 ## Phase 4 outcome: action menus
 
 Notebook Home actions, the editor's + Cell menu, and cell actions now use one repository-owned dropdown component composed from Base UI Menu primitives. Items and separators share semantic tokens, and destructive and disabled states are explicit. The popup is portalled to the document body, fixed-positioned, right-aligned to its trigger, and uses Base UI collision and dismissal behavior. Notebook keyboard and click handlers do not receive popup events. The Shortcuts and Execution details disclosures remain native `details` elements because they are informational. No right-click context menu, checkbox/radio item, or submenu currently exists to migrate. No dependency or backend change was needed. Native WebView2 interaction remains a verification step unless separately recorded in `progress.md`.
+
+## Phase 5 outcome: dialogs and confirmations
+
+Project creation now uses a repository-owned Base UI Dialog composition with the existing form and busy behavior. Project-switching and Notebook menu deletions use a shared Base UI AlertDialog confirmation with explicit Cancel and confirm actions and initial focus on Cancel. Dialog styles use DataForge tokens, a body portal, bounded scrolling, and a responsive action footer. Project creation retains its no-backdrop-dismiss behavior. Native Tauri file and folder pickers remain native; the Notebook D-D keyboard confirmation remains inline. No settings or source-deletion dialog exists yet. No dependency or backend change was needed. Native WebView2 interaction remains a verification step unless separately recorded in `progress.md`.
 
 ## Consequences
 
