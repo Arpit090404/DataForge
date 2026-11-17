@@ -3,6 +3,12 @@
 **Updated:** 2026-11-17
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Product UI redesign specification and shell audit (2026-11-17)
+
+The Hybrid + Balanced redesign initiative is documented in `spec/REDESIGN_SPEC.md`; source-backed shell findings and a prioritized implementation sequence are in `spec/SHELL_AUDIT.md`. The current shell uses fixed CSS grid tracks, a CSS-resizable left aside, a native Windows title bar plus a WebView top bar, a mode switcher inside the workspace toolbar, and duplicate inspector toggles. The Notebook already has a dedicated Home/Editor and an honest unavailable runtime; Chat and Dashboard remain empty/unavailable rather than implemented agent or chart workspaces. JetBrains Nerd Font is not packaged or referenced in the frontend. These are audit findings and design targets, not implemented changes.
+
+**Checks:** Read the repository constitution, design/architecture/UX specifications, ADRs 0001 and 0010, frontend shell/Notebook/styles/shared controls, Tauri configuration/capability, and installed Tauri window API declarations. No native screen was opened, no screenshot was inspected, and no build or test suite was run for this documentation-only task. The next work is staged shell implementation, including native Windows verification before removing window decorations.
+
 ## shadcn/ui migration, phase 7 tables and data display (2026-11-17)
 
 CSV preview, analytical result pages, and Notebook result replay now use shared token-styled native Table, Header, Body, Row, Head, and Cell components. The shared foundation also exports a Footer primitive for table composition. Repeated empty table and history messages use TableEmpty, and source status pills in the workspace and inspector use a shared Badge. Existing sticky headers, horizontal scrolling, 360 px scroll height, CSV row numbers, bounded preview, analytical pagination, and caller data paths remain. Notebook Home and column profile remain custom grid layouts; other empty states, sidebar status dots, and one-off loading messages remain contextual. No skeleton, virtualization, table header sorting, selection, or resizing existed to migrate. No dependency, backend, query, or data contract change was made. ADR 0010 and `DESIGN_SYSTEM.md` record the decisions.
