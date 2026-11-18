@@ -227,3 +227,22 @@ input[type="checkbox"]{accent-color:var(--color-accent)}
 .ui-popover-popup{width:min(300px,calc(100vw - 2 * var(--space-4)));max-height:calc(100vh - 2 * var(--space-4));overflow:auto;background:var(--color-surface-elevated);border:1px solid var(--color-border);border-radius:var(--radius-default);padding:var(--space-3);line-height:1.6;color:var(--color-text-secondary);font-size:var(--font-size-secondary);white-space:normal;box-shadow:0 6px 18px var(--color-shadow);outline:none}
 .ui-popover-popup:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}
 .ui-tooltip-popup{max-width:min(280px,calc(100vw - 2 * var(--space-4)));padding:var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-small);background:var(--color-surface-elevated);color:var(--color-text);font-size:var(--font-size-secondary);line-height:1.4;white-space:normal;overflow-wrap:anywhere;box-shadow:0 6px 18px var(--color-shadow);pointer-events:none}
+
+/* Workspace content responds to its grid track, including both sidebar widths. */
+.main-workspace{container-type:inline-size}
+.workspace-content,.notebook-workspace{min-width:0;scrollbar-gutter:stable both-edges}
+.notebook-mode .workspace-content{scrollbar-gutter:auto}
+.profile-section{overflow-x:auto}
+@container (max-width:700px){
+  .dataset-workspace{padding:20px var(--space-panel) 12px}
+  .analytics-panel{margin:0 var(--space-panel) 32px}
+  .notebook-home{padding:24px var(--space-panel) 50px}
+  .notebook-home-controls{flex-wrap:wrap}
+  .notebook-home-columns,.notebook-home-row{grid-template-columns:minmax(130px,1fr) 95px 30px 25px;gap:6px;padding:0 8px}
+  .notebook-home-date{font-size:var(--font-size-meta)}
+  .notebook-blocks,.notebook-add{width:calc(100% - 2 * var(--space-panel))}
+  .analytics-field-row,.filter-rule,.builder-row{flex-wrap:wrap}
+  .filter-rule select,.filter-rule input,.builder-row select,.builder-row input{flex:1 1 120px}
+  .history-list button{display:block}
+  .history-list small{display:block;margin-top:4px}
+}
