@@ -1,0 +1,557 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-18T12:59:34.837Z",
+  "title": "Design System: DataForge",
+  "extensions": {
+    "colorMeta": {
+      "app-bg": {
+        "role": "neutral",
+        "displayName": "Charcoal work area",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#131313",
+          "#1b1b1b",
+          "#232323",
+          "#4b4b4b",
+          "#7c7c7c",
+          "#b0b0b0",
+          "#e5e5e5"
+        ]
+      },
+      "sidebar": {
+        "role": "neutral",
+        "displayName": "Sidebar charcoal",
+        "tonalRamp": [
+          "#0c0c0c",
+          "#151515",
+          "#1e1e1e",
+          "#272727",
+          "#505050",
+          "#7f7f7f",
+          "#b2b2b2",
+          "#e5e5e5"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Workspace graphite",
+        "tonalRamp": [
+          "#0e0e0e",
+          "#191919",
+          "#242424",
+          "#2e2e2e",
+          "#555555",
+          "#838383",
+          "#b4b4b4",
+          "#e6e6e6"
+        ]
+      },
+      "surface-secondary": {
+        "role": "neutral",
+        "displayName": "Surface Secondary",
+        "tonalRamp": [
+          "#101112",
+          "#1b1e20",
+          "#262b2d",
+          "#32383b",
+          "#595d60",
+          "#85898b",
+          "#b6b8b9",
+          "#e7e7e8"
+        ]
+      },
+      "surface-elevated": {
+        "role": "neutral",
+        "displayName": "Surface Elevated",
+        "tonalRamp": [
+          "#111314",
+          "#1e2122",
+          "#2a2f31",
+          "#373c3f",
+          "#5d6264",
+          "#888c8e",
+          "#b8babb",
+          "#e7e8e8"
+        ]
+      },
+      "hover": {
+        "role": "neutral",
+        "displayName": "Hover",
+        "tonalRamp": [
+          "#131617",
+          "#212628",
+          "#2f3639",
+          "#3d464a",
+          "#626a6d",
+          "#8c9294",
+          "#babdbf",
+          "#e8e9ea"
+        ]
+      },
+      "selected": {
+        "role": "neutral",
+        "displayName": "Selected graphite",
+        "tonalRamp": [
+          "#121517",
+          "#1f2528",
+          "#2c3539",
+          "#39444a",
+          "#5e686d",
+          "#899194",
+          "#b8bdbf",
+          "#e7e9ea"
+        ]
+      },
+      "code-surface": {
+        "role": "neutral",
+        "displayName": "Code Surface",
+        "tonalRamp": [
+          "#0a0c0e",
+          "#121517",
+          "#191e21",
+          "#21272b",
+          "#4a5053",
+          "#7a7f81",
+          "#afb2b3",
+          "#e4e5e6"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "tonalRamp": [
+          "#454545",
+          "#777777",
+          "#a9a9a9",
+          "#dcdcdc",
+          "#eaeaea",
+          "#efefef",
+          "#f6f6f6",
+          "#fcfcfc"
+        ]
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Text Secondary",
+        "tonalRamp": [
+          "#3e3e3e",
+          "#6c6c6c",
+          "#9a9a9a",
+          "#c8c8c8",
+          "#d8d8d8",
+          "#e3e3e3",
+          "#eeeeee",
+          "#f9f9f9"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Text Muted",
+        "tonalRamp": [
+          "#3a3c3d",
+          "#64686a",
+          "#8e9497",
+          "#b8c0c4",
+          "#cbd2d5",
+          "#d9dee0",
+          "#e8ebed",
+          "#f7f8f9"
+        ]
+      },
+      "text-subtle": {
+        "role": "neutral",
+        "displayName": "Text Subtle",
+        "tonalRamp": [
+          "#373737",
+          "#5f5f5f",
+          "#878787",
+          "#afafaf",
+          "#c3c3c3",
+          "#d3d3d3",
+          "#e5e5e5",
+          "#f6f6f6"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border",
+        "tonalRamp": [
+          "#161819",
+          "#25292b",
+          "#353a3d",
+          "#454c4f",
+          "#696f71",
+          "#919597",
+          "#bdc0c1",
+          "#e9eaea"
+        ]
+      },
+      "input-border": {
+        "role": "neutral",
+        "displayName": "Input Border",
+        "tonalRamp": [
+          "#1b1e20",
+          "#2f3538",
+          "#434b4f",
+          "#566167",
+          "#788186",
+          "#9ca3a6",
+          "#c4c8ca",
+          "#ebeded"
+        ]
+      },
+      "focus-ring": {
+        "role": "primary",
+        "displayName": "Focus ice",
+        "tonalRamp": [
+          "#3c4145",
+          "#677078",
+          "#939faa",
+          "#bfcedd",
+          "#d1deeb",
+          "#dde7f0",
+          "#ebf1f6",
+          "#f8fafc"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Pale steel blue",
+        "tonalRamp": [
+          "#333d45",
+          "#586a77",
+          "#7d97a9",
+          "#a2c4dc",
+          "#b8d5ea",
+          "#cbe0ef",
+          "#e0edf6",
+          "#f5f9fc"
+        ]
+      },
+      "action": {
+        "role": "primary",
+        "displayName": "Light action",
+        "tonalRamp": [
+          "#434343",
+          "#737373",
+          "#a4a4a4",
+          "#d5d5d5",
+          "#e4e4e4",
+          "#ebebeb",
+          "#f3f3f3",
+          "#fbfbfb"
+        ]
+      },
+      "action-hover": {
+        "role": "primary",
+        "displayName": "Action Hover",
+        "tonalRamp": [
+          "#4d4d4d",
+          "#858585",
+          "#bdbdbd",
+          "#f5f5f5",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff"
+        ]
+      },
+      "action-text": {
+        "role": "neutral",
+        "displayName": "Action Text",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#131313",
+          "#1b1b1b",
+          "#232323",
+          "#4b4b4b",
+          "#7c7c7c",
+          "#b0b0b0",
+          "#e5e5e5"
+        ]
+      },
+      "destructive": {
+        "role": "status",
+        "displayName": "Destructive",
+        "tonalRamp": [
+          "#3e2e2d",
+          "#6c504e",
+          "#99726f",
+          "#c79490",
+          "#d8aca9",
+          "#e2c2c0",
+          "#eedbd9",
+          "#f9f3f2"
+        ]
+      },
+      "success": {
+        "role": "status",
+        "displayName": "Success",
+        "tonalRamp": [
+          "#323c35",
+          "#57695c",
+          "#7c9582",
+          "#a1c1a9",
+          "#b8d3be",
+          "#cbdfd0",
+          "#e0ece3",
+          "#f5f9f6"
+        ]
+      },
+      "warning": {
+        "role": "status",
+        "displayName": "Warning",
+        "tonalRamp": [
+          "#433a2c",
+          "#74644b",
+          "#a58e6b",
+          "#d6b88b",
+          "#e5cba5",
+          "#ecd9bd",
+          "#f3e8d7",
+          "#fbf7f2"
+        ]
+      },
+      "error": {
+        "role": "status",
+        "displayName": "Error",
+        "tonalRamp": [
+          "#453836",
+          "#77615e",
+          "#a98a85",
+          "#dcb3ad",
+          "#eac6c2",
+          "#efd6d2",
+          "#f6e6e4",
+          "#fcf7f6"
+        ]
+      },
+      "error-surface": {
+        "role": "status",
+        "displayName": "Error Surface",
+        "tonalRamp": [
+          "#17100f",
+          "#271b1b",
+          "#382626",
+          "#483231",
+          "#6b5958",
+          "#938585",
+          "#beb6b6",
+          "#e9e7e7"
+        ]
+      },
+      "warning-surface": {
+        "role": "status",
+        "displayName": "Warning Surface",
+        "tonalRamp": [
+          "#14110e",
+          "#221e17",
+          "#312b21",
+          "#3f382b",
+          "#645d53",
+          "#8e8981",
+          "#bbb8b3",
+          "#e8e7e6"
+        ]
+      },
+      "success-border": {
+        "role": "status",
+        "displayName": "Success Border",
+        "tonalRamp": [
+          "#1b211d",
+          "#2f3a33",
+          "#435249",
+          "#576b5e",
+          "#79897e",
+          "#9da9a1",
+          "#c4cbc6",
+          "#ebeeec"
+        ]
+      },
+      "warning-border": {
+        "role": "status",
+        "displayName": "Warning Border",
+        "tonalRamp": [
+          "#262017",
+          "#433829",
+          "#5f4f3a",
+          "#7b674b",
+          "#97866e",
+          "#b3a695",
+          "#d1cabf",
+          "#f0edea"
+        ]
+      },
+      "error-border": {
+        "role": "status",
+        "displayName": "Error Border",
+        "tonalRamp": [
+          "#261919",
+          "#422b2b",
+          "#5e3d3d",
+          "#7a5050",
+          "#967272",
+          "#b29898",
+          "#d1c1c1",
+          "#f0eaea"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "Workspace headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Working copy and controls."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Code and technical values."
+      }
+    },
+    "shadows": [
+      {
+        "name": "dialog",
+        "value": "0 20px 60px var(--color-shadow)",
+        "purpose": "Modal separation."
+      },
+      {
+        "name": "floating",
+        "value": "0 6px 18px var(--color-shadow)",
+        "purpose": "Popovers and tooltips."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-colors",
+        "value": "120ms ease",
+        "purpose": "Color-only button state change when motion is permitted."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "notebook-compact",
+        "value": "1050px"
+      },
+      {
+        "name": "narrow",
+        "value": "850px"
+      },
+      {
+        "name": "workspace-container",
+        "value": "700px"
+      },
+      {
+        "name": "inspector-fit",
+        "value": "1101px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main action in a form or workspace.",
+      "html": "<button class=\"ds-primary\">Create project</button>",
+      "css": ".ds-primary{height:36px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-default);background:var(--color-action);color:var(--color-action-text);font:650 12px var(--font-family-ui);cursor:pointer;transition:background-color .12s ease}.ds-primary:hover{background:var(--color-action-hover)}.ds-primary:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Ordinary adjacent action.",
+      "html": "<button class=\"ds-secondary\">Browse</button>",
+      "css": ".ds-secondary{height:36px;padding:0 12px;border:1px solid var(--color-input-border);border-radius:var(--radius-default);background:var(--color-surface-elevated);color:var(--color-text);font:650 12px var(--font-family-ui);cursor:pointer;transition:background-color .12s ease}.ds-secondary:hover{background:var(--color-hover)}.ds-secondary:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Low emphasis action.",
+      "html": "<button class=\"ds-ghost\">Cancel</button>",
+      "css": ".ds-ghost{height:36px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-default);background:transparent;color:var(--color-text-secondary);font:650 12px var(--font-family-ui);cursor:pointer}.ds-ghost:hover{background:var(--color-hover);color:var(--color-text)}.ds-ghost:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "description": "Confirmed destructive action.",
+      "html": "<button class=\"ds-destructive\">Delete</button>",
+      "css": ".ds-destructive{height:36px;padding:0 12px;border:1px solid var(--color-error-border);border-radius:var(--radius-default);background:var(--color-error-surface);color:var(--color-destructive);font:650 12px var(--font-family-ui);cursor:pointer}.ds-destructive:hover{background:var(--color-error-border)}.ds-destructive:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Standard editable field.",
+      "html": "<input class=\"ds-input\" aria-label=\"Project name\" placeholder=\"Project name\">",
+      "css": ".ds-input{height:36px;padding:0 12px;border:1px solid var(--color-input-border);border-radius:var(--radius-default);background:var(--color-surface);color:var(--color-text);font:400 12px var(--font-family-ui)}.ds-input::placeholder{color:var(--color-text-muted)}.ds-input:hover{border-color:var(--color-text-muted)}.ds-input:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+    },
+    {
+      "name": "Mode Navigation",
+      "kind": "nav",
+      "description": "Centered workspace mode selector.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Workspace mode\"><button aria-pressed=\"true\">Chat</button><button aria-pressed=\"false\">Notebook</button><button aria-pressed=\"false\">Dashboard</button></nav>",
+      "css": ".ds-nav{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--color-surface-elevated);border-radius:var(--radius-default);background:var(--color-app-bg)}.ds-nav button{height:28px;padding:0 12px;border:0;border-radius:var(--radius-small);background:transparent;color:var(--color-text-muted);font:400 11px var(--font-family-ui);cursor:pointer}.ds-nav button:hover{color:var(--color-text)}.ds-nav button[aria-pressed=true]{background:var(--color-hover);color:var(--color-text)}.ds-nav button:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "Text-backed source status.",
+      "html": "<span class=\"ds-badge\">Ready</span>",
+      "css": ".ds-badge{display:inline-flex;padding:3px 7px;border:1px solid var(--color-success-border);border-radius:var(--radius-small);color:var(--color-success);font:400 10px var(--font-family-ui)}"
+    },
+    {
+      "name": "Source Row",
+      "kind": "custom",
+      "description": "Selected source in the sidebar.",
+      "html": "<button class=\"ds-source\"><span>survey.csv</span><small>CSV source</small></button>",
+      "css": ".ds-source{display:flex;flex-direction:column;gap:4px;min-width:180px;padding:8px;border:1px solid var(--color-border);border-radius:var(--radius-default);background:var(--color-selected);color:var(--color-text);text-align:left;font:400 12px var(--font-family-ui);cursor:pointer}.ds-source small{color:var(--color-text-subtle);font-size:10px}.ds-source:hover{background:var(--color-hover)}.ds-source:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Analytical Workbench",
+    "overview": "DataForge's current interface is quiet, compact, and technical. It uses a stable desktop shell, clear work areas, dense controls, and restrained status cues so datasets and analytical work carry the attention. Its visual language is tactile but quiet: a hover, selection, or focus cue clarifies an action without shifting the layout.",
+    "keyCharacteristics": [
+      "Compact three-region desktop shell with a centered mode selector.",
+      "Dark neutral surfaces separated by fine borders and modest tonal changes.",
+      "Small, consistent controls with clear keyboard focus.",
+      "Data tables and notebook content treated as working material, not decorative cards."
+    ],
+    "rules": [
+      {
+        "name": "The Semantic Color Rule",
+        "body": "Choose the existing role token for each new element; define a new role in `spec/DESIGN_SYSTEM.md` and the shared foundation before repeating it across screens.",
+        "section": "colors"
+      },
+      {
+        "name": "The Data First Rule",
+        "body": "Use the type roles to clarify data and actions; keep long technical values selectable and allow names to truncate only where the full value remains accessible.",
+        "section": "typography"
+      },
+      {
+        "name": "The Shared Workspace Rule",
+        "body": "Keep navigation, center work, contextual inspection, and the composer in their established relationships; give Notebook its dedicated document workspace.",
+        "section": "layout"
+      },
+      {
+        "name": "The Restrained Float Rule",
+        "body": "Reserve shadow for a surface that actually floats above the workspace.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do reuse the shared components, semantic color roles, 4 px spacing scale, and documented control heights.",
+      "Do keep keyboard focus visible and include text or an icon with status color.",
+      "Do review both normal and narrow desktop layouts when changing a screen."
+    ],
+    "donts": [
+      "Don't introduce gradients, glow, oversized cards, or a second icon language into this workbench.",
+      "Don't create local near-match colors, ad hoc field heights, or parallel button and input systems.",
+      "Don't use a control's appearance to imply an agent, execution runtime, or report capability that is not implemented."
+    ]
+  }
+}
