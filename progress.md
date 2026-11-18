@@ -3,6 +3,14 @@
 **Updated:** 2026-11-18
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Task 1.5 revised: native-title-bar-compatible shell cleanup (2026-11-18)
+
+The native Windows title bar and Tauri window configuration remain unchanged. The application shell now has one 44 px toolbar below the native frame. Its equal outer grid tracks keep the existing Chat/Notebook/Dashboard button group centered against the whole window. DataForge identity and a truncating project name are on the left. New Project, Open Project, and one contextual toggle are on the right as shared tooltip-backed IconButtons. The toggle controls the Notebook sidebar in Notebook mode and the inspector otherwise, using the existing visibility state and callbacks. The 52 px workspace toolbar, its breadcrumbs and redundant Notebook exit action, the inspector's duplicate close button, and the welcome screen's duplicate project actions are removed. The workspace starts directly below the application toolbar; project actions still use `requestProject` and its unsaved-draft confirmation path.
+
+**Files changed:** `apps/desktop/src/App.tsx`, `apps/desktop/src/styles.css`, `spec/DESIGN_SYSTEM.md`, and this file. No Tauri configuration, capability, native integration, Notebook, Chat, Dashboard, or backend file changed.
+
+**Checks:** `.\node_modules\.bin\tsc.cmd --noEmit` and `node tests/design-system.cjs` passed in `apps/desktop`; `git diff --check` passed. Source inspection confirmed one mode group, right-side New/Open/contextual-toggle order, removal of the workspace toolbar and inspector close control, and reuse of the existing project and mode callbacks. No full test suite or build ran. The 900 × 600 layout, long-name ellipsis, project pickers, toggle interaction, mode switching, and native Windows window behavior were not exercised in this run; they remain manual verification items.
+
 ## Task 1.5 title bar investigation (2026-11-18)
 
 **Investigation only; implementation stopped before changing window decorations.** The locked desktop stack is Tauri 2.12.5, Tao 0.37.2, and Wry 0.57.2. The main window remains natively decorated at 1440 × 900 with a 900 × 600 minimum; its capability grants only `core:default` and `dialog:default`. The shell already has a 50 px top bar plus a 52 px workspace toolbar. Project actions, the mode switcher, and the inspector toggle are in the top bar; Notebook's sidebar toggle is in the workspace toolbar, and the inspector has a second close button. Notebook drafts currently use `beforeunload` for window-close warning.

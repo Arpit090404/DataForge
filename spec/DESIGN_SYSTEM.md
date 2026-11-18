@@ -83,6 +83,8 @@ Use `--radius-small` 3 px for menus/badges, `--radius-default` 4 px for controls
 
 Use `--control-height-small/default/large/icon` for those heights. Lucide is the only icon set. Use `--icon-size-small` 14 px for dense metadata, `--icon-size-default` 16 px for controls, `--icon-size-large` 20 px for prominent icons, and `--icon-size-hero` 28 px for empty-state illustrations. Use `--icon-stroke` 1.75 where supported. Center icons and label icon-only controls with `aria-label`.
 
+The Windows shell keeps its native title bar. A single 44 px application toolbar sits below it: identity and truncating project context on the left, the mode button group centered against the full window, and New Project, Open Project, then one contextual sidebar/inspector IconButton on the right. Use the existing spacing and color tokens, with one subtle separator before the contextual toggle. The central workspace starts directly below this toolbar.
+
 ## Interaction and usage rules
 
 The left navigation sidebar is a shell-owned layout preference shared by Chat, Notebook, and Dashboard. Its default width is 248 px, bounded to 210–340 px; the CSS grid reads the same live `--sidebar-width` value. The inner edge has an 8 px full-height resize hit area with a 1 px divider, hover cue, and visible focus ring. Its vertical separator exposes current/min/max width. Arrow Left/Right adjust by 10 px, Shift+Arrow by 20 px, Home/End reach the bounds, and double-click restores 248 px. Persist the width in local browser storage, not project metadata; ignore invalid stored values and clamp valid values. Notebook sidebar collapse removes its grid track without changing the saved width.
