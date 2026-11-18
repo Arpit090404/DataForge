@@ -3,6 +3,16 @@
 **Updated:** 2026-11-18
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Product UI redesign, Task 1.4 fixed top-centre mode switcher (2026-11-18)
+
+The existing Chat/Notebook/Dashboard button group now lives once in the shell top bar. A symmetric `minmax(0,1fr) auto minmax(0,1fr)` header grid centers it against the full window; the left track holds brand and project context, and the right holds project actions and the existing inspector toggle. Project text shrinks and ellipsizes within the left track. The workspace toolbar now lays out only breadcrumbs and its remaining contextual action/label, with no reserved mode column. The switcher's button styling, `aria-pressed`, and `selectMode` source-selection reset remain unchanged. No sidebar, inspector, mode content, Tauri chrome, or backend behavior changed.
+
+**Files changed:** `apps/desktop/src/App.tsx`, `apps/desktop/src/styles.css`, and this file.
+
+**Checks:** `.\node_modules\.bin\tsc.cmd --noEmit`, `node tests/design-system.cjs` (both in `apps/desktop`), and `git diff --check` passed. In a live Vite browser, the single switcher was a direct top-bar child and had no workspace-toolbar copy. Its center was x=640 at 1,280 px and x=450 at 900 px. Clicking Chat, Notebook, and Dashboard preserved exactly one `aria-pressed=true` button and the x=450 center at 900 px. The Task 1.1 separator's End/Home keys moved the left sidebar to 340/210 px, yielding 560/690 px center tracks at 900 px while the switcher stayed at x=450, with no document horizontal overflow. At 1,280 px with a 210 px sidebar, closing and reopening the inspector changed the grid from `210px 800px 270px` to `210px 1070px` and back while the switcher stayed at x=640. A temporary long project-name text probe ellipsized in the left track and retained 16 px gaps on both sides of the switcher at 900 px. The 52 px workspace toolbar still contains breadcrumbs and contextual content but no reserved center slot. No full suite or build ran.
+
+**Remaining:** The browser screenshot operation timed out twice and the alternate computer browser host was unavailable, so visual verification rests on measured DOM geometry rather than a captured image. Project-backed Notebook mode, an actual project rename, and native WebView2 at 900 × 600 were not exercised. Custom title-bar work has not started.
+
 ## Product UI redesign, Task 1.3 right inspector controls (2026-11-18)
 
 The workspace-toolbar inspector button is removed. The existing top-bar `IconButton` is the sole primary toggle, with its accessible label, pressed state, and selected/hover treatment tied to actual inspector visibility. The existing `inspectorOpen` preference remains the only inspector visibility state. A subscribed 1,100 px media match derives whether the inspector can fit; at narrow widths React does not render it, the grid releases its column, and the top-bar button is disabled with a width-specific label. Resizing back restores the prior open/closed choice. Notebook still suppresses the inspector without changing that choice. The toolbar's unused button gap and CSS-only inspector hiding rules were removed. No mode switcher, title bar, sidebar resizing, or backend behavior changed.
