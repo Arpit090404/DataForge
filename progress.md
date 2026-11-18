@@ -3,6 +3,10 @@
 **Updated:** 2026-11-18
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Impeccable design record (2026-11-18)
+
+Root `DESIGN.md` now records the implemented dark desktop visual system in portable frontmatter and prose; `.impeccable/design.json` carries the corresponding color metadata and eight component previews. The record mirrors `spec/DESIGN_SYSTEM.md` and the current CSS/shared components. No application UI or behavior changed. Static checks confirmed 28 extracted color values, eight sidecar previews, valid JSON, and no whitespace errors. The Impeccable engine could not initialize in this restricted environment, so its own parser and live panel were not run; no new native visual verification was performed.
+
 ## Task 1.6 application shell polish (2026-11-18)
 
 **Issues found and changes:** The rendered mode buttons measured 27 px against the 28 px small-control contract; sidebar section headers measured 42 px while the inspector header measured 52 px. Sidebar action gaps, source-row spacing, and Add CSV footer insets used unrelated pixel values. In `apps/desktop/src/styles.css`, mode buttons now use the 28 px control token, section and inspector headers use the 44 px spacing token, the Add CSV action has a 36 px minimum height, and the touched sidebar gaps/insets use the existing 4 px scale. The sidebar footer is 36 px. Existing semantic colours, UI typography, shared IconButtons, and native Windows decorations remain unchanged.
