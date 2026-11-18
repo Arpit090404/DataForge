@@ -13,7 +13,7 @@ for (const extension of ['.ts', '.tsx']) {
   );
 }
 
-const { analysisSettingsKey, isAnalysisResultStale, canExportAnalysisResult, describeFilter, describeAggregation } = require(path.resolve(__dirname, '../src/App.tsx'));
+const { analysisSettingsKey, isAnalysisResultStale, canExportAnalysisResult, describeFilter, describeAggregation, describeAnalysisOperation } = require(path.resolve(__dirname, '../src/App.tsx'));
 const base = {
   kind: 'rows', filters: { op: 'and', conditions: [{ column: 'city', op: 'eq', value: 'Paris' }] },
   sort: [{ column: 'sales', direction: 'desc', nulls: 'last' }], groupBy: [],
@@ -49,4 +49,7 @@ assert.equal(describeFilter({ op: 'and', conditions: [
   { op: 'or', conditions: [{ column: 'sales', op: 'gt', value: '10' }, { column: 'sales', op: 'is_null' }] },
 ] }), '("city" = "Paris" AND ("sales" > "10" OR "sales" is null))');
 assert.equal(describeAggregation({ op: 'sum', column: 'sales', alias: 'total' }), 'Sum of "sales" as "total"');
+assert.equal(describeAnalysisOperation(base), 'View rows · Filtered · Sort by 1 column · 100 rows/page');
+assert.equal(describeAnalysisOperation({ ...base, kind: 'group', groupBy: ['city', 'region'], aggregations: [{ op: 'count', alias: 'count_rows' }] }), 'Group by 2 columns · 1 measure · Filtered · Sort by 1 column · 100 rows/page');
+assert.match(describeAnalysisOperation({ ...base, filters: { op: 'or', conditions: [{ column: 'city', op: 'eq', value: '' }] } }), /Incomplete filter/);
 console.log('Analysis result freshness, export guard, and summary checks passed.');

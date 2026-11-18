@@ -1,7 +1,19 @@
 # DataForge progress
 
-**Updated:** 2026-11-18
+**Updated:** 2026-11-19
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
+
+## First-use source discovery (2026-11-19)
+
+The no-project welcome state now offers direct Create project and Open project buttons. An empty project shows a primary Add CSV source button in the central workspace with a short explanation of the preview, profile, and analysis that follow. These buttons reuse `requestProject` and `registerCsv`; the existing registration path selects the new source and replaces the first-source state with the dataset workspace. Returning to a mode after a source exists no longer shows the first-source prompt. No registration, profiling, or DuckDB logic changed.
+
+**Verification:** `npm.cmd run build` passed the design-token and form-control checks, TypeScript, and Vite. `git diff --check` passed. Source inspection confirmed that the central Add CSV source button calls the existing `registerCsv` function, which opens the CSV picker, registers the file, refreshes datasets, and selects the new source; the selected-source branch then renders its preview and analysis. A local Vite server started, but the shared preview was unavailable and the alternate browser host could not open a tab. Native picker interaction, keyboard traversal, and visual layout in WebView2 remain unverified.
+
+## Analysis builder clarity (2026-11-19)
+
+The analysis builder now keeps operation choice and Run in the main path. Grouping and aggregations appear when “Group and summarize” is selected; the native “More options” disclosure contains filters, sorting, and rows per page. The Run area summarizes the current settings. Validation messages appear beside the affected section, and the disclosure opens for errors inside it. The analytical request, nested filter editor, result pagination, stale-result state, and export guard were not changed.
+
+**Verification:** `npm.cmd run build` passed design-token and form-control checks, TypeScript, and Vite after a restricted first attempt could not read the Vite config. `node tests/analysis-result.cjs` passed freshness, export guard, nested filter description, and operation summary checks. `tsc.cmd --noEmit` passed after the summary test was added. The populated builder was not exercised in a native WebView2 window, so actual click-through and visual density at narrow widths remain unverified.
 
 ## Analysis result freshness (2026-11-18)
 

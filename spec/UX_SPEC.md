@@ -40,7 +40,11 @@ Multiline input, send/stop states, dataset/artifact references, clear provider c
 ## Interaction and states
 Selecting an investigation loads shared state across modes. Artifacts selected anywhere open in inspector. Approval prompts identify action, scope, inputs, and consequences. Cancellation is available for active work. Each data-driven panel defines empty, loading, populated, error, stale/disconnected, and permission-required states.
 
+With no project open, the central welcome state offers Create project and Open project using the existing project actions. In a project with no registered sources, the central workspace offers Add CSV source using the existing registration action and explains that the selected file opens a preview, column profile, and analysis controls. After a source is registered, the first-source prompt disappears and the selected source workspace takes its place. Toolbar and sidebar actions remain available.
+
 An analytical result displays the exact operation configuration used for its successful execution. Editing query settings, starting another run, or failing validation/execution leaves the prior result visible but clearly stale. Export is unavailable until a successful result matches the current settings; pagination retains the original result configuration.
+
+The analysis builder presents operation choice and Run as the main path. Group by and aggregations appear when the grouping operation is selected. A native disclosure holds optional filters (including nested AND/OR groups), multi-column sorting, and page size. A short live summary beside Run states the current operation, filter and sort presence, grouping/measure counts when applicable, and rows per page. A validation failure opens the disclosure when its control is inside and displays the message beside that section. Results remain directly below the builder.
 
 ## Window and accessibility
 Windows-first; support resizing and high DPI. At narrow widths collapse inspector first. Keyboard focus remains visible. Icon-only controls have accessible names. Do not use color alone for status. Respect reduced motion. Charts provide accessible summaries or data alternatives.

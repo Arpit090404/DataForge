@@ -304,7 +304,7 @@ export default function App() {
       <main className="main-workspace">
         {error && <div className="error-banner" role="alert"><CircleAlert size={16}/><span>{error}</span><IconButton label="Dismiss error" onClick={() => setError(null)}><X size={16}/></IconButton></div>}
         <div className="workspace-content">
-          {!project ? <div className="welcome-state"><div className="welcome-icon"><Table2 size={28}/></div><span className="eyebrow">LOCAL DATA WORKSPACE</span><h1>Start with a project.</h1><p>Use New project or Open project in the toolbar to begin. Everything in this slice runs locally.</p><div className="welcome-note"><span>01 &nbsp; Create a project</span><span>02 &nbsp; Register a CSV</span><span>03 &nbsp; Inspect your data</span></div></div>
+          {!project ? <div className="welcome-state"><div className="welcome-icon"><Table2 size={28}/></div><h1>Start with a project.</h1><p>Create a local workspace for your data sources and analysis history. You can add a CSV after the project opens.</p><div className="welcome-actions"><Button variant="primary" onClick={() => requestProject('new')}><Plus size={16}/> Create project</Button><Button variant="secondary" onClick={() => requestProject('open')}><FolderOpen size={16}/> Open project</Button></div></div>
           : selected ? <><DatasetWorkspace dataset={selected} inspection={inspection} busy={busy} onRefresh={() => selectDataset(selected.id)} />{inspection && <AnalyticsPanel key={selected.id} dataset={selected} columns={inspection.columns} onSelectExecution={setInspectedExecution} />}</>
           : mode !== 'Notebook' ? <ModeEmpty mode={mode} onAddSource={registerCsv} hasSources={datasets.length > 0} /> : null}
           {project && <div className="notebook-surface" hidden={!!selected || mode !== 'Notebook'}><NotebookWorkspace key={projectSession} active={!selected && mode === 'Notebook'} projectName={project.name} onDirtyChange={setNotebookDirty} /></div>}
@@ -320,10 +320,11 @@ export default function App() {
 }
 
 function ModeEmpty({ mode, onAddSource, hasSources }: { mode: Mode; onAddSource: () => void; hasSources: boolean }) {
+  if (!hasSources) return <div className="mode-empty"><div className="mode-empty-icon"><Database size={28}/></div><h1>Add your first data source.</h1><p>Choose a CSV file to see its preview and column profile. Then you can run an analysis.</p><Button variant="primary" onClick={onAddSource}><FilePlus2 size={16}/> Add CSV source</Button></div>;
   const icon = mode === 'Chat' ? <MessageSquare size={28}/> : mode === 'Notebook' ? <Archive size={28}/> : <LayoutDashboard size={28}/>;
-  const heading = mode === 'Chat' ? 'Your investigation starts here.' : mode === 'Notebook' ? 'No notebook entries yet.' : 'No dashboard yet.';
-  const copy = mode === 'Chat' ? 'Register a CSV source to inspect its structure and profile. Agent conversations are not available in this version.' : mode === 'Notebook' ? 'Analysis executions will appear here when analytical operations are available.' : 'Charts and findings will appear here when dashboard tools are available.';
-  return <div className="mode-empty"><div className="mode-empty-icon">{icon}</div><span className="eyebrow">{mode.toUpperCase()} WORKSPACE</span><h1>{heading}</h1><p>{copy}</p>{!hasSources && <Button variant="secondary" onClick={onAddSource}><Plus size={16}/> Add a CSV source</Button>}</div>;
+  const heading = mode === 'Chat' ? 'Select a source to continue.' : mode === 'Notebook' ? 'No notebook entries yet.' : 'No dashboard yet.';
+  const copy = mode === 'Chat' ? 'Agent conversations are not available in this version.' : mode === 'Notebook' ? 'Analysis executions will appear here when analytical operations are available.' : 'Charts and findings will appear here when dashboard tools are available.';
+  return <div className="mode-empty"><div className="mode-empty-icon">{icon}</div><span className="eyebrow">{mode.toUpperCase()} WORKSPACE</span><h1>{heading}</h1><p>{copy}</p></div>;
 }
 
 function DatasetWorkspace({ dataset, inspection, busy, onRefresh }: { dataset: Dataset; inspection: Inspection | null; busy: string | null; onRefresh: () => void }) {
@@ -368,6 +369,9 @@ function incompleteFilter(group: FilterGroup): boolean {
   return group.conditions.some(item => isGroup(item) ? incompleteFilter(item) :
     item.op !== 'is_null' && item.op !== 'is_not_null' && !item.value?.length);
 }
+export function describeAnalysisOperation({ kind, filters, sort, groupBy, aggregations, limit }: AnalysisSettings): string {
+  return `${kind === 'group' ? `Group ${groupBy.length ? `by ${groupBy.length} ${groupBy.length === 1 ? 'column' : 'columns'}` : 'all rows'} · ${aggregations.length} ${aggregations.length === 1 ? 'measure' : 'measures'}` : 'View rows'} · ${incompleteFilter(filters) ? 'Incomplete filter' : cleaned(filters) ? 'Filtered' : 'No filters'} · ${sort.length ? `Sort by ${sort.length} ${sort.length === 1 ? 'column' : 'columns'}` : 'No sort'} · ${limit} rows/page`;
+}
 
 function FilterEditor({ group, onChange, columns, depth = 0 }: { group: FilterGroup; onChange: (next: FilterGroup) => void; columns: string[]; depth?: number }) {
   const replace = (index: number, item: FilterExpr) => onChange({ ...group, conditions: group.conditions.map((value, i) => i === index ? item : value) });
@@ -394,6 +398,8 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   const [groupBy, setGroupBy] = useState<string[]>([]);
   const [aggregations, setAggregations] = useState<Aggregation[]>([{ op: 'count', alias: 'count_rows' }]);
   const [limit, setLimit] = useState(100);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [errorField, setErrorField] = useState<'filters' | 'sort' | 'aggregations' | 'limit' | null>(null);
   const [displayed, setDisplayed] = useState<DisplayedResult | null>(null);
   const [history, setHistory] = useState<Execution[]>([]);
   const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null);
@@ -408,6 +414,7 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   const lastRequest = displayed?.request;
   const stale = !!displayed && isAnalysisResultStale(displayed, settings);
   const canExport = canExportAnalysisResult(displayed, settings, loading);
+  const operationSummary = describeAnalysisOperation({ kind, filters, sort, groupBy, aggregations, limit });
   const exportState = useRef({ canExport, executionId: result?.execution.id });
   exportState.current = { canExport, executionId: result?.execution.id };
 
@@ -446,13 +453,14 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   function run() {
     setDisplayed(current => current && { ...current, invalidated: true });
     setNotice('');
-    if (incompleteFilter(filters)) { setError('Enter a value for each filter condition, or remove the unfinished condition.'); return; }
-    if (sort.some(item => !sortNames.includes(item.column))) { setError('A sort column is no longer in the result. Update or remove it.'); return; }
+    setErrorField(null);
+    if (incompleteFilter(filters)) { setAdvancedOpen(true); setErrorField('filters'); setError('Enter a value for each filter condition, or remove the unfinished condition.'); return; }
+    if (sort.some(item => !sortNames.includes(item.column))) { setAdvancedOpen(true); setErrorField('sort'); setError('A sort column is no longer in the result. Update or remove it.'); return; }
     const validSort = sort.filter(item => sortNames.includes(item.column));
     if (kind === 'group' && aggregations.some(item => !item.alias.trim() || (item.op !== 'count' && !item.column))) {
-      setError('Each aggregation needs a name and a column, except count rows.'); return;
+      setErrorField('aggregations'); setError('Each aggregation needs a name and a column, except count rows.'); return;
     }
-    if (!Number.isInteger(limit) || limit < 1 || limit > 200) { setError('Choose a page size from 1 to 200.'); return; }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) { setAdvancedOpen(true); setErrorField('limit'); setError('Choose a page size from 1 to 200.'); return; }
     const request: AnalyticsRequest = { kind, limit, offset: 0 };
     const validFilters = cleaned(filters);
     if (validFilters) request.filters = validFilters;
@@ -478,13 +486,20 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   return <section className="analytics-panel" aria-label="Analytical operations">
     <div className="analytics-title"><div><span className="eyebrow">LOCAL ANALYTICS</span><h2>Explore this dataset</h2><p>Run bounded, application-defined operations on the registered CSV. No SQL or code entry.</p></div></div>
     <div className="analytics-builder">
-      <div className="analytics-field-row"><label>Operation<Select value={kind} onChange={e => { setKind(e.target.value as 'rows' | 'group'); setSort([]); }}><option value="rows">Filter and view rows</option><option value="group">Group and summarize</option></Select></label><label>Rows per page<Input type="number" min={1} max={200} value={limit} onChange={e => setLimit(Number(e.target.value))}/></label></div>
-      <div className="analytics-subheading">Filters <span>Optional · nested AND / OR groups</span></div>
-      <FilterEditor group={filters} onChange={setFilters} columns={names} />
+      <div className="analytics-field-row"><label>Operation<Select value={kind} onChange={e => { setKind(e.target.value as 'rows' | 'group'); setSort([]); setError(''); setErrorField(null); }}><option value="rows">Filter and view rows</option><option value="group">Group and summarize</option></Select></label></div>
       {kind === 'group' && <><div className="analytics-subheading">Group by <span>Choose one or more columns</span></div><div className="group-chips">{names.map((name, index) => <label key={index}><input type="checkbox" checked={groupBy.includes(name)} onChange={e => setGroupBy(e.target.checked ? [...groupBy, name] : groupBy.filter(value => value !== name))}/>{name || '(unnamed)'}</label>)}</div><div className="analytics-subheading">Aggregations <span>At least one measure</span></div><div className="builder-list">{aggregations.map((item, index) => <div className="builder-row" key={index}><Select aria-label={`Aggregation ${index + 1} function`} value={item.op} onChange={e => setAggregations(current => current.map((value, i) => i === index ? { ...value, op: e.target.value as Aggregation['op'], column: e.target.value === 'count' ? undefined : (value.column ?? names[0]) } : value))}>{[['count','Count rows'],['sum','Sum'],['average','Average'],['min','Minimum'],['max','Maximum'],['distinct_count','Distinct count']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</Select>{item.op !== 'count' && <Select aria-label={`Aggregation ${index + 1} column`} value={item.column ?? ''} onChange={e => setAggregations(current => current.map((value, i) => i === index ? { ...value, column: e.target.value } : value))}>{names.map((name, i) => <option key={i} value={name}>{name || '(unnamed)'}</option>)}</Select>}<Input aria-label={`Aggregation ${index + 1} result name`} value={item.alias} onChange={e => setAggregations(current => current.map((value, i) => i === index ? { ...value, alias: e.target.value } : value))} placeholder="Result name"/>{aggregations.length > 1 && <IconButton label={`Remove aggregation ${index + 1}`} onClick={() => setAggregations(current => current.filter((_, i) => i !== index))}><X size={14}/></IconButton>}</div>)}</div><Button variant="secondary" size="small" onClick={() => setAggregations(current => [...current, { op: 'count', alias: `count_${current.length + 1}` }])}><Plus size={14}/> Add aggregation</Button></>}
-      <div className="analytics-subheading">Sort order <span>Multiple columns supported</span></div><div className="builder-list">{sort.map((item, index) => <div className="builder-row" key={index}><Select aria-label={`Sort ${index + 1} column`} value={item.column} onChange={e => setSort(current => current.map((value, i) => i === index ? { ...value, column: e.target.value } : value))}>{sortNames.map((name, i) => <option key={i} value={name}>{name || '(unnamed)'}</option>)}</Select><Select aria-label={`Sort ${index + 1} direction`} value={item.direction} onChange={e => setSort(current => current.map((value, i) => i === index ? { ...value, direction: e.target.value as SortSpec['direction'] } : value))}><option value="asc">Ascending</option><option value="desc">Descending</option></Select><Select aria-label={`Sort ${index + 1} null placement`} value={item.nulls} onChange={e => setSort(current => current.map((value, i) => i === index ? { ...value, nulls: e.target.value as SortSpec['nulls'] } : value))}><option value="last">Nulls last</option><option value="first">Nulls first</option></Select><IconButton label={`Remove sort ${index + 1}`} onClick={() => setSort(current => current.filter((_, i) => i !== index))}><X size={14}/></IconButton></div>)}</div><Button variant="secondary" size="small" onClick={() => sortNames.length && setSort(current => [...current, { column: sortNames[0], direction: 'asc', nulls: 'last' }])} disabled={!sortNames.length}><Plus size={14}/> Add sort column</Button>
-      <div className="analytics-run"><span>Results are limited to 200 rows per page.</span><div className="analytics-run-actions">{loading && <Button variant="secondary" onClick={cancel} disabled={!activeExecutionId}>Cancel</Button>}<Button variant="primary" onClick={run} loading={loading}>{loading ? 'Running…' : 'Run operation'}<ArrowRight size={16}/></Button></div></div>
-      {error && <div className="inline-error" role="alert"><CircleAlert size={16}/>{error}</div>}{notice && <div className="inline-success" role="status">{notice}</div>}
+      {errorField === 'aggregations' && error && <div className="inline-error" role="alert"><CircleAlert size={16}/>{error}</div>}
+      <details className="analytics-advanced" open={advancedOpen} onToggle={e => setAdvancedOpen(e.currentTarget.open)}><summary>More options <span>{errorField && errorField !== 'aggregations' ? 'Needs attention · ' : ''}{cleaned(filters) ? 'Filters · ' : ''}{sort.length ? 'Sorting · ' : ''}Page size</span></summary>
+        <div className="analytics-subheading">Filters <span>Optional · nested AND / OR groups</span></div>
+        <FilterEditor group={filters} onChange={setFilters} columns={names} />
+        {errorField === 'filters' && error && <div className="inline-error" role="alert"><CircleAlert size={16}/>{error}</div>}
+        <div className="analytics-subheading">Sort order <span>Multiple columns supported</span></div><div className="builder-list">{sort.map((item, index) => <div className="builder-row" key={index}><Select aria-label={`Sort ${index + 1} column`} value={item.column} onChange={e => setSort(current => current.map((value, i) => i === index ? { ...value, column: e.target.value } : value))}>{sortNames.map((name, i) => <option key={i} value={name}>{name || '(unnamed)'}</option>)}</Select><Select aria-label={`Sort ${index + 1} direction`} value={item.direction} onChange={e => setSort(current => current.map((value, i) => i === index ? { ...value, direction: e.target.value as SortSpec['direction'] } : value))}><option value="asc">Ascending</option><option value="desc">Descending</option></Select><Select aria-label={`Sort ${index + 1} null placement`} value={item.nulls} onChange={e => setSort(current => current.map((value, i) => i === index ? { ...value, nulls: e.target.value as SortSpec['nulls'] } : value))}><option value="last">Nulls last</option><option value="first">Nulls first</option></Select><IconButton label={`Remove sort ${index + 1}`} onClick={() => setSort(current => current.filter((_, i) => i !== index))}><X size={14}/></IconButton></div>)}</div><Button variant="secondary" size="small" onClick={() => sortNames.length && setSort(current => [...current, { column: sortNames[0], direction: 'asc', nulls: 'last' }])} disabled={!sortNames.length}><Plus size={14}/> Add sort column</Button>
+        {errorField === 'sort' && error && <div className="inline-error" role="alert"><CircleAlert size={16}/>{error}</div>}
+        <div className="analytics-field-row analytics-page-size"><label>Rows per page<Input type="number" min={1} max={200} value={limit} aria-invalid={errorField === 'limit'} onChange={e => setLimit(Number(e.target.value))}/></label></div>
+        {errorField === 'limit' && error && <div className="inline-error" role="alert"><CircleAlert size={16}/>{error}</div>}
+      </details>
+      <div className="analytics-run"><span>{operationSummary}</span><div className="analytics-run-actions">{loading && <Button variant="secondary" onClick={cancel} disabled={!activeExecutionId}>Cancel</Button>}<Button variant="primary" onClick={run} loading={loading}>{loading ? 'Running…' : 'Run operation'}<ArrowRight size={16}/></Button></div></div>
+      {error && !errorField && <div className="inline-error" role="alert"><CircleAlert size={16}/>{error}</div>}{notice && <div className="inline-success" role="status">{notice}</div>}
     </div>
     {result && lastRequest && displayed && <div className="analytics-results">
       <div className="content-section-heading"><div><h2>Result</h2><p>{result.total_rows === null ? `${result.rows.length} rows on this page` : `${result.total_rows.toLocaleString()} matching rows · ${result.rows.length} on this page`}</p></div><Button variant="secondary" size="small" onClick={exportPage} disabled={!canExport}><Download size={14}/> Export current page</Button></div>
