@@ -3,6 +3,16 @@
 **Updated:** 2026-11-18
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Product UI redesign, Task 1.3 right inspector controls (2026-11-18)
+
+The workspace-toolbar inspector button is removed. The existing top-bar `IconButton` is the sole primary toggle, with its accessible label, pressed state, and selected/hover treatment tied to actual inspector visibility. The existing `inspectorOpen` preference remains the only inspector visibility state. A subscribed 1,100 px media match derives whether the inspector can fit; at narrow widths React does not render it, the grid releases its column, and the top-bar button is disabled with a width-specific label. Resizing back restores the prior open/closed choice. Notebook still suppresses the inspector without changing that choice. The toolbar's unused button gap and CSS-only inspector hiding rules were removed. No mode switcher, title bar, sidebar resizing, or backend behavior changed.
+
+**Files changed:** `apps/desktop/src/App.tsx`, `apps/desktop/src/styles.css`, and this file.
+
+**Checks:** `.\node_modules\.bin\tsc.cmd --noEmit` and `node tests/design-system.cjs` passed in `apps/desktop`; `git diff --check` passed. In the live Vite browser at 1,280 × 800, a screenshot showed the top-bar control aligned with the project actions and no toolbar duplicate. Clicking the top-bar button changed the grid from `248px 762px 270px` to `248px 1032px`, removed the inspector, and changed its label/pressed state to Show/false; reopening restored all three tracks and Hide/true. At 900 × 600, a screenshot showed the compact shell; the inspector was absent, its button reported the width limit and was disabled, the grid was `248px 652px`, and there was no document horizontal overflow. Returning to 1,280 px restored an open inspector when it had been open and preserved a closed inspector when it had been closed. Switching to Dashboard kept the inspector and grid state consistent. No full suite or build ran.
+
+**Remaining:** Project-backed Notebook Home/Editor and native WebView2 interactions were not exercised in this browser check; Notebook suppression is verified by the shared `notebookMode` render condition but still needs a native project-backed check. Task 1.4 has not started.
+
 ## Product UI redesign, Task 1.2 workspace centering (2026-11-18)
 
 The shell continues to use Task 1.1's live `--sidebar-width` and its existing two/three-column grid with `minmax(0,1fr)` for the central track. The workspace is now a CSS inline-size container: the documented narrow insets and compact Notebook Home/analytics layouts respond when the **central track** is at most 700 px, including when both sidebars consume a wide window. Symmetric scrollbar gutters keep centered Welcome and empty-state content on the track's centerline when a vertical scrollbar appears. The column profile scrolls inside its section instead of widening the application. Notebook Home and Editor retain their approximately 1,120 px centered content limits; source tables retain the available central width. No sidebar state, resizing behavior, dependencies, backend behavior, or design contract changed.
