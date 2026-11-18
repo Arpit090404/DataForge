@@ -40,6 +40,8 @@ Multiline input, send/stop states, dataset/artifact references, clear provider c
 ## Interaction and states
 Selecting an investigation loads shared state across modes. Artifacts selected anywhere open in inspector. Approval prompts identify action, scope, inputs, and consequences. Cancellation is available for active work. Each data-driven panel defines empty, loading, populated, error, stale/disconnected, and permission-required states.
 
+An analytical result displays the exact operation configuration used for its successful execution. Editing query settings, starting another run, or failing validation/execution leaves the prior result visible but clearly stale. Export is unavailable until a successful result matches the current settings; pagination retains the original result configuration.
+
 ## Window and accessibility
 Windows-first; support resizing and high DPI. At narrow widths collapse inspector first. Keyboard focus remains visible. Icon-only controls have accessible names. Do not use color alone for status. Respect reduced motion. Charts provide accessible summaries or data alternatives.
 
