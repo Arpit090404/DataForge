@@ -9,8 +9,8 @@ import { ConfirmationDialog, Dialog, DialogBody, DialogContent, DialogDescriptio
 import { Select } from './components/ui/select';
 import NotebookWorkspace from './Notebook';
 import {
-  Activity, Archive, ArrowRight, ChevronDown, Download,
-  ChevronRight, CircleAlert, Database, FilePlus2, FileSpreadsheet, FolderOpen,
+  Activity, Archive, ArrowRight, Download,
+  CircleAlert, Database, FilePlus2, FileSpreadsheet, FolderOpen,
   LayoutDashboard, MessageSquare, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
   Plus, RefreshCw, Search, Table2, X,
 } from 'lucide-react';
@@ -270,9 +270,16 @@ export default function App() {
 
   return <div className={`app-shell${notebookMode ? ' notebook-mode' : ''}${resizingSidebar ? ' resizing-sidebar' : ''}`} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
     <header className="topbar">
-      <div className="top-identity"><div className="brand"><div className="brand-mark"><span/><span/><span/><span/></div><span>DataForge</span><span className="brand-divider"/><span className="app-kind">WORKSPACE</span></div><div className="top-project"><span className="project-indicator"/><span className="top-project-name" title={project?.name ?? 'No project open'}>{project?.name ?? 'No project open'}</span>{project && <ChevronDown size={14} className="muted-icon"/>}</div></div>
+      <div className="top-identity"><div className="brand"><div className="brand-mark"><span/><span/><span/><span/></div><span>DataForge</span></div><div className="top-project"><span className="project-indicator"/><span className="top-project-name" title={project?.name ?? 'No project open'}>{project?.name ?? 'No project open'}</span></div></div>
       <div className="mode-switch" role="group" aria-label="Workspace mode">{(['Chat','Notebook','Dashboard'] as Mode[]).map(item => <button key={item} aria-pressed={!selected && mode === item} className={!selected && mode === item ? 'active' : ''} onClick={() => selectMode(item)}>{item}</button>)}</div>
-      <div className="top-actions"><button className="top-link" onClick={() => requestProject('new')}>New project</button><button className="top-link" onClick={() => requestProject('open')}>Open project</button>{!notebookMode && <><span className="top-separator"/><IconButton label={!inspectorCanShow ? 'Inspector unavailable at this window width' : inspectorVisible ? 'Hide inspector' : 'Show inspector'} aria-pressed={inspectorVisible} disabled={!inspectorCanShow} onClick={() => setInspectorOpen(open => !open)}>{inspectorVisible ? <PanelRightClose size={16}/> : <PanelRightOpen size={16}/>}</IconButton></>}</div>
+      <div className="top-actions">
+        <IconButton label="New project" onClick={() => requestProject('new')}><Plus size={16}/></IconButton>
+        <IconButton label="Open project" onClick={() => requestProject('open')}><FolderOpen size={16}/></IconButton>
+        <span className="top-separator" aria-hidden="true"/>
+        {notebookMode
+          ? <IconButton label={notebookSidebarOpen ? 'Hide project sidebar' : 'Show project sidebar'} aria-pressed={notebookSidebarOpen} onClick={() => setNotebookSidebarOpen(open => !open)}>{notebookSidebarOpen ? <PanelLeftClose size={16}/> : <PanelLeftOpen size={16}/>}</IconButton>
+          : <IconButton label={!inspectorCanShow ? 'Inspector unavailable at this window width' : inspectorVisible ? 'Hide inspector' : 'Show inspector'} aria-pressed={inspectorVisible} disabled={!inspectorCanShow} onClick={() => setInspectorOpen(open => !open)}>{inspectorVisible ? <PanelRightClose size={16}/> : <PanelRightOpen size={16}/>}</IconButton>}
+      </div>
     </header>
     <div className={`body-grid ${inspectorVisible ? '' : 'inspector-hidden'}${notebookMode && !notebookSidebarOpen ? ' sidebar-hidden' : ''}`}>
       {(!notebookMode || notebookSidebarOpen) && <aside className="left-sidebar" aria-label="Workspace navigation">
@@ -293,10 +300,9 @@ export default function App() {
       </aside>}
 
       <main className="main-workspace">
-        <div className="workspace-toolbar"><div className="crumbs">{notebookMode && <IconButton label={notebookSidebarOpen ? 'Hide project sidebar' : 'Show project sidebar'} onClick={() => setNotebookSidebarOpen(!notebookSidebarOpen)}>{notebookSidebarOpen ? <PanelLeftClose size={16}/> : <PanelLeftOpen size={16}/>}</IconButton>}{project ? <><span>{project.name}</span><ChevronRight size={14}/><strong>{selected ? selected.name : mode}</strong></> : <strong>Welcome</strong>}</div><div className="toolbar-end">{notebookMode ? <button className="top-link notebook-exit" onClick={() => selectMode('Chat')}>Back to workspace</button> : <span className="local-label"><span/> LOCAL</span>}</div></div>
         {error && <div className="error-banner" role="alert"><CircleAlert size={16}/><span>{error}</span><IconButton label="Dismiss error" onClick={() => setError(null)}><X size={16}/></IconButton></div>}
         <div className="workspace-content">
-          {!project ? <div className="welcome-state"><div className="welcome-icon"><Table2 size={28}/></div><span className="eyebrow">LOCAL DATA WORKSPACE</span><h1>Start with a project.</h1><p>Create a space for your sources and analysis, or reopen one you already have. Everything in this slice runs locally.</p><div className="welcome-actions"><Button variant="primary" onClick={() => setShowCreate(true)}><Plus size={16}/> Create project</Button><Button variant="secondary" onClick={openProject}><FolderOpen size={16}/> Open existing</Button></div><div className="welcome-note"><span>01 &nbsp; Create a project</span><span>02 &nbsp; Register a CSV</span><span>03 &nbsp; Inspect your data</span></div></div>
+          {!project ? <div className="welcome-state"><div className="welcome-icon"><Table2 size={28}/></div><span className="eyebrow">LOCAL DATA WORKSPACE</span><h1>Start with a project.</h1><p>Use New project or Open project in the toolbar to begin. Everything in this slice runs locally.</p><div className="welcome-note"><span>01 &nbsp; Create a project</span><span>02 &nbsp; Register a CSV</span><span>03 &nbsp; Inspect your data</span></div></div>
           : selected ? <><DatasetWorkspace dataset={selected} inspection={inspection} busy={busy} onRefresh={() => selectDataset(selected.id)} />{inspection && <AnalyticsPanel key={selected.id} dataset={selected} columns={inspection.columns} onSelectExecution={setInspectedExecution} />}</>
           : mode !== 'Notebook' ? <ModeEmpty mode={mode} onAddSource={registerCsv} hasSources={datasets.length > 0} /> : null}
           {project && <div className="notebook-surface" hidden={!!selected || mode !== 'Notebook'}><NotebookWorkspace key={projectSession} active={!selected && mode === 'Notebook'} projectName={project.name} onDirtyChange={setNotebookDirty} /></div>}
@@ -304,7 +310,7 @@ export default function App() {
         {!notebookMode && <div className="composer"><div className="composer-box"><div className="composer-heading"><MessageSquare size={14}/> Agent workspace unavailable</div><div className="composer-row"><span>Connect an agent in a later release to investigate with chat.</span><button disabled aria-label="Send unavailable"><ArrowRight size={16}/></button></div></div><div className="composer-note">No data is sent to an AI provider in this version.</div></div>}
       </main>
 
-      {inspectorVisible && <aside className="inspector" aria-label="Context inspector"><div className="inspector-header"><span>INSPECTOR</span><IconButton label="Hide inspector" onClick={() => setInspectorOpen(false)}><X size={16}/></IconButton></div>{selected ? <DatasetInspector dataset={selected} inspection={inspection} execution={inspectedExecution?.dataset_id === selected.id ? inspectedExecution : null}/> : <div className="inspector-empty"><div className="inspector-empty-icon"><Search size={20}/></div><strong>Nothing selected</strong><p>Select a source to see its details and column profile.</p></div>}</aside>}
+      {inspectorVisible && <aside className="inspector" aria-label="Context inspector"><div className="inspector-header"><span>INSPECTOR</span></div>{selected ? <DatasetInspector dataset={selected} inspection={inspection} execution={inspectedExecution?.dataset_id === selected.id ? inspectedExecution : null}/> : <div className="inspector-empty"><div className="inspector-empty-icon"><Search size={20}/></div><strong>Nothing selected</strong><p>Select a source to see its details and column profile.</p></div>}</aside>}
     </div>
     {showCreate && <ProjectDialog onClose={() => setShowCreate(false)} onCreate={createProject} busy={!!busy}/>}
     <ConfirmationDialog open={pendingProject !== null} title="Discard unsaved notebook edits?" description={`Your unsaved notebook edits will be lost if you ${pendingProject === 'new' ? 'create' : 'open'} another project.`} confirmLabel="Discard edits" destructive onCancel={() => setPendingProject(null)} onConfirm={confirmProject}/>
