@@ -373,6 +373,32 @@ export function describeAnalysisOperation({ kind, filters, sort, groupBy, aggreg
   return `${kind === 'group' ? `Group ${groupBy.length ? `by ${groupBy.length} ${groupBy.length === 1 ? 'column' : 'columns'}` : 'all rows'} · ${aggregations.length} ${aggregations.length === 1 ? 'measure' : 'measures'}` : 'View rows'} · ${incompleteFilter(filters) ? 'Incomplete filter' : cleaned(filters) ? 'Filtered' : 'No filters'} · ${sort.length ? `Sort by ${sort.length} ${sort.length === 1 ? 'column' : 'columns'}` : 'No sort'} · ${limit} rows/page`;
 }
 
+export function describeExecution(execution: Execution): { operation: string; configuration: [string, string][]; duration: string } {
+  const operation = execution.operation_type === 'group' ? 'Group and summarize' : execution.operation_type === 'rows' ? 'Filter and view rows' : `Operation: ${execution.operation_type}`;
+  const configuration: [string, string][] = [];
+  try {
+    const request: unknown = JSON.parse(execution.parameters);
+    if (request && typeof request === 'object' && !Array.isArray(request)) {
+      const params = request as Record<string, unknown>;
+      if (params.filters === null) configuration.push(['Filters', 'None']);
+      else if (params.filters && typeof params.filters === 'object') configuration.push(['Filters', describeFilter(params.filters as FilterExpr)]);
+      if (execution.operation_type === 'group') {
+        if (Array.isArray(params.group_by) && params.group_by.every(value => typeof value === 'string')) configuration.push(['Group by', params.group_by.length ? params.group_by.map(value => JSON.stringify(value)).join(', ') : 'All rows together']);
+        if (Array.isArray(params.aggregations) && params.aggregations.every(value => value && typeof value === 'object' && typeof value.op === 'string' && typeof value.alias === 'string')) configuration.push(['Measures', params.aggregations.length ? (params.aggregations as Aggregation[]).map(describeAggregation).join('; ') : 'None']);
+      }
+      if (Array.isArray(params.sort) && params.sort.every(value => value && typeof value.column === 'string' && (value.direction === 'asc' || value.direction === 'desc') && (value.nulls === 'first' || value.nulls === 'last'))) configuration.push(['Sort', params.sort.length ? (params.sort as SortSpec[]).map(item => `${JSON.stringify(item.column)} ${item.direction === 'asc' ? 'ascending' : 'descending'}, nulls ${item.nulls}`).join('; ') : 'Unspecified']);
+      if (typeof params.limit === 'number' && Number.isInteger(params.limit) && params.limit > 0) configuration.push(['Page size', `${params.limit} rows`]);
+      if (typeof params.offset === 'number' && Number.isInteger(params.offset) && params.offset >= 0) configuration.push(['Offset', `${params.offset} rows`]);
+    }
+  } catch { /* Original parameters remain available below. */ }
+  const elapsed = execution.completed_at ? Date.parse(execution.completed_at) - Date.parse(execution.started_at) : NaN;
+  return { operation, configuration, duration: Number.isFinite(elapsed) && elapsed >= 0 ? elapsed < 1000 ? `${elapsed} ms` : `${(elapsed / 1000).toFixed(1)} s` : '—' };
+}
+
+export function executionStatus(status: string): string {
+  return ({ succeeded: 'Succeeded', failed: 'Failed', cancelled: 'Cancelled', interrupted: 'Interrupted', running: 'Running', queued: 'Queued', awaiting_approval: 'Awaiting approval' } as Record<string, string>)[status] ?? status;
+}
+
 function FilterEditor({ group, onChange, columns, depth = 0 }: { group: FilterGroup; onChange: (next: FilterGroup) => void; columns: string[]; depth?: number }) {
   const replace = (index: number, item: FilterExpr) => onChange({ ...group, conditions: group.conditions.map((value, i) => i === index ? item : value) });
   const remove = (index: number) => onChange({ ...group, conditions: group.conditions.filter((_, i) => i !== index) });
@@ -415,6 +441,7 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   const stale = !!displayed && isAnalysisResultStale(displayed, settings);
   const canExport = canExportAnalysisResult(displayed, settings, loading);
   const operationSummary = describeAnalysisOperation({ kind, filters, sort, groupBy, aggregations, limit });
+  const selectedDescription = selectedExecution && describeExecution(selectedExecution);
   const exportState = useRef({ canExport, executionId: result?.execution.id });
   exportState.current = { canExport, executionId: result?.execution.id };
 
@@ -514,6 +541,38 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
       <div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j} title={value ?? 'null'}>{value === null ? <span className="null-value">null</span> : value}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div>
       <div className="result-pagination"><span>Offset {lastRequest.offset ?? 0}</span><Button variant="secondary" size="small" disabled={loading || !lastRequest.offset} onClick={() => void execute({ ...lastRequest, offset: Math.max(0, (lastRequest.offset ?? 0) - (lastRequest.limit ?? 100)) }, displayed.settings)}>Previous</Button><Button variant="secondary" size="small" disabled={loading || !result.has_more} onClick={() => void execute({ ...lastRequest, offset: (lastRequest.offset ?? 0) + (lastRequest.limit ?? 100) }, displayed.settings)}>Next</Button></div>
     </div>}
-    <div className="analytics-history"><div className="content-section-heading"><div><h2>Execution history</h2><p>Saved in this project. Earlier result pages are not stored.</p></div></div>{history.filter(item => item.dataset_id === dataset.id).length ? <div className="history-list">{history.filter(item => item.dataset_id === dataset.id).map(item => <button key={item.id} className={selectedExecution?.id === item.id ? 'selected' : ''} onClick={() => setSelectedExecution(item)}><span>{item.operation_type === 'group' ? 'Group and summarize' : 'Filter and view rows'}</span><small>{new Date(item.started_at).toLocaleString()} · {item.status}</small></button>)}</div> : <TableEmpty>No analytical operations have been run for this source.</TableEmpty>}{selectedExecution && <div className="execution-details"><div className="analytics-subheading">Execution details</div><dl><div><dt>Status</dt><dd>{selectedExecution.status}</dd></div><div><dt>Rows returned</dt><dd>{selectedExecution.result_row_count ?? '—'}</dd></div><div><dt>Engine</dt><dd>{selectedExecution.duckdb_version ? `DuckDB ${selectedExecution.duckdb_version}` : '—'}</dd></div><div><dt>Source fingerprint</dt><dd className="mono" title={selectedExecution.source_fingerprint}>{selectedExecution.source_fingerprint.slice(0, 16)}…</dd></div><div><dt>Completed</dt><dd>{selectedExecution.completed_at ? new Date(selectedExecution.completed_at).toLocaleString() : '—'}</dd></div></dl>{selectedExecution.error_summary && <p className="inline-error">{selectedExecution.error_summary}</p>}<pre>{(() => { try { return JSON.stringify(JSON.parse(selectedExecution.parameters), null, 2); } catch { return selectedExecution.parameters; } })()}</pre></div>}</div>
+    <div className="analytics-history">
+      <div className="content-section-heading"><div><h2>Execution history</h2><p>Saved in this project. Earlier result pages are not stored.</p></div></div>
+      {history.filter(item => item.dataset_id === dataset.id).length
+        ? <div className="history-list">{history.filter(item => item.dataset_id === dataset.id).map(item => {
+          const description = describeExecution(item);
+          return <button key={item.id} className={selectedExecution?.id === item.id ? 'selected' : ''} onClick={() => setSelectedExecution(item)} aria-pressed={selectedExecution?.id === item.id}>
+            <span className="history-operation"><strong>{description.operation}</strong><span>{description.configuration.map(([label, value]) => `${label}: ${value}`).join(' · ') || 'Configuration unavailable'}</span></span>
+            <small><span className={`execution-status status-${item.status}`}>{executionStatus(item.status)}</span> · {new Date(item.started_at).toLocaleString()} · {description.duration}</small>
+          </button>;
+        })}</div>
+        : <TableEmpty>No analytical operations have been run for this source.</TableEmpty>}
+      {selectedExecution && selectedDescription && <div className="execution-details">
+        <div className="analytics-subheading">Execution details</div>
+        <dl className="execution-summary">
+          <div><dt>Operation</dt><dd>{selectedDescription.operation}</dd></div>
+          {selectedDescription.configuration.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+          <div><dt>Status</dt><dd className={`execution-status status-${selectedExecution.status}`}>{executionStatus(selectedExecution.status)}</dd></div>
+          <div><dt>Duration</dt><dd>{selectedDescription.duration}</dd></div>
+          {selectedExecution.result_row_count !== null && <div><dt>Rows returned</dt><dd>{selectedExecution.result_row_count}</dd></div>}
+        </dl>
+        {selectedExecution.error_summary && <p className="inline-error">{selectedExecution.error_summary}</p>}
+        <details className="execution-technical"><summary>Technical details</summary>
+          <dl>
+            <div><dt>Execution ID</dt><dd className="mono">{selectedExecution.id}</dd></div>
+            <div><dt>Engine</dt><dd>{selectedExecution.duckdb_version ? `DuckDB ${selectedExecution.duckdb_version}` : '—'}</dd></div>
+            <div><dt>Source fingerprint</dt><dd className="mono">{selectedExecution.source_fingerprint}</dd></div>
+            <div><dt>Started</dt><dd>{new Date(selectedExecution.started_at).toLocaleString()}</dd></div>
+            <div><dt>Completed</dt><dd>{selectedExecution.completed_at ? new Date(selectedExecution.completed_at).toLocaleString() : '—'}</dd></div>
+          </dl>
+          <div className="execution-parameters-label">Original parameters</div><pre>{selectedExecution.parameters}</pre>
+        </details>
+      </div>}
+    </div>
   </section>;
 }

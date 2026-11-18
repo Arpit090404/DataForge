@@ -251,6 +251,14 @@ The original first-slice verification did not exercise native window controls; t
 
 When testing resumes, verify the corrected sort layout in a rebuilt native executable and exercise grouped results, pagination, and cancellation with an operation long enough to expose the Cancel control. Check console diagnostics and native error states. Keep full Milestone 1 worker/recovery work behind the existing review and proof gates.
 
+## Execution history readability (2026-11-19)
+
+The desktop analysis history now derives readable operation, filter, grouping, measure, sort, page, status, and duration text from each saved execution. It omits absent optional fields, keeps recorded errors visible, and places the exact original parameter string plus provenance in a Technical details disclosure. The persistence schema and DuckDB execution path did not change. Focused summary, status, stale-result, and export-guard assertions passed with `node apps/desktop/tests/analysis-result.cjs`; `node node_modules/typescript/bin/tsc --noEmit` passed from `apps/desktop`. `npm.cmd run build` passed design-token and form-control checks and TypeScript, then Vite failed while loading its config because the sandbox denied reading a parent directory. Native visual interaction and actual failed/cancelled project records were not exercised in this pass.
+
+## Impeccable documentation refresh (2026-11-19)
+
+Refreshed only `.impeccable/design.json` from the existing `DESIGN.md` and current shared UI tokens/components. Added metadata for all seven documented type roles and aligned component preview snippets with the repository-owned controls. The installed engine's `context --target apps/desktop/src/App.tsx` exited successfully and emitted no stale-sidecar warning; the sidecar schema, narrative, 28 color names, seven type roles, eight component snippets, and `code` build path were checked against their sources. The engine executable does not expose a `document` verb; `$impeccable document` is the skill playbook run after engine context. No application implementation or authoritative design document changed in this refresh.
+
 ## Maintenance
 
 Update this file after meaningful implementation or verification work. Record the date, what actually changed, exact checks and outcomes, current limitations, and the next concrete task. Do not turn planned work or experiment-only results into claims about the application.
