@@ -3,6 +3,14 @@
 **Updated:** 2026-11-18
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Task 1.5 title bar investigation (2026-11-18)
+
+**Investigation only; implementation stopped before changing window decorations.** The locked desktop stack is Tauri 2.12.5, Tao 0.37.2, and Wry 0.57.2. The main window remains natively decorated at 1440 × 900 with a 900 × 600 minimum; its capability grants only `core:default` and `dialog:default`. The shell already has a 50 px top bar plus a 52 px workspace toolbar. Project actions, the mode switcher, and the inspector toggle are in the top bar; Notebook's sidebar toggle is in the workspace toolbar, and the inspector has a second close button. Notebook drafts currently use `beforeunload` for window-close warning.
+
+Tauri's custom-titlebar API documents `startDragging`, `minimize`, `toggleMaximize`, `close`, and the corresponding narrow window permissions. In the installed Tao source, undecorated window resize hit testing is DPI aware, and maximized client bounds use the monitor work area. Full edge/corner hit testing depends on the undecorated-shadow setting; Tauri's default shadow setting takes a different path. These are source findings, not native verification. A frameless HTML maximize button does not establish Windows 11's native Snap Layout hover behavior; that requires native hit-test integration or a proven plugin. The existing 900 px minimum width also limits half-screen Snap on displays narrower than 1800 logical px. `Window.close()` requires a Tauri close-request guard to preserve unsaved Notebook drafts; `beforeunload` alone has not been verified for it.
+
+**Checks:** Read repository configuration, capability, shell, design rules, and installed Tauri/Tao API/source. No build, test, or native interaction check was run; no executable or control behavior was verified. Next step for Task 1.5 is to select and validate a Windows Snap Layout integration, including the 900 px minimum-size tradeoff, then implement the title bar and run the requested native Windows checks. Native decorations remain enabled, and Tasks 1.1–1.4 code is unchanged.
+
 ## Product UI redesign, Task 1.4 fixed top-centre mode switcher (2026-11-18)
 
 The existing Chat/Notebook/Dashboard button group now lives once in the shell top bar. A symmetric `minmax(0,1fr) auto minmax(0,1fr)` header grid centers it against the full window; the left track holds brand and project context, and the right holds project actions and the existing inspector toggle. Project text shrinks and ellipsizes within the left track. The workspace toolbar now lays out only breadcrumbs and its remaining contextual action/label, with no reserved mode column. The switcher's button styling, `aria-pressed`, and `selectMode` source-selection reset remain unchanged. No sidebar, inspector, mode content, Tauri chrome, or backend behavior changed.
