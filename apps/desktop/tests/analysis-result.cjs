@@ -13,7 +13,7 @@ for (const extension of ['.ts', '.tsx']) {
   );
 }
 
-const { analysisSettingsKey, isAnalysisResultStale, canExportAnalysisResult, describeFilter, describeAggregation, describeAnalysisOperation } = require(path.resolve(__dirname, '../src/App.tsx'));
+const { analysisSettingsKey, isAnalysisResultStale, canExportAnalysisResult, describeFilter, describeAggregation, describeAnalysisOperation, describeExecution, executionStatus } = require(path.resolve(__dirname, '../src/App.tsx'));
 const base = {
   kind: 'rows', filters: { op: 'and', conditions: [{ column: 'city', op: 'eq', value: 'Paris' }] },
   sort: [{ column: 'sales', direction: 'desc', nulls: 'last' }], groupBy: [],
@@ -52,4 +52,12 @@ assert.equal(describeAggregation({ op: 'sum', column: 'sales', alias: 'total' })
 assert.equal(describeAnalysisOperation(base), 'View rows · Filtered · Sort by 1 column · 100 rows/page');
 assert.equal(describeAnalysisOperation({ ...base, kind: 'group', groupBy: ['city', 'region'], aggregations: [{ op: 'count', alias: 'count_rows' }] }), 'Group by 2 columns · 1 measure · Filtered · Sort by 1 column · 100 rows/page');
 assert.match(describeAnalysisOperation({ ...base, filters: { op: 'or', conditions: [{ column: 'city', op: 'eq', value: '' }] } }), /Incomplete filter/);
+const execution = { operation_type: 'group', started_at: '2026-11-19T10:00:00Z', completed_at: '2026-11-19T10:00:01.250Z', parameters: JSON.stringify({ kind: 'group', filters: base.filters, group_by: ['city'], aggregations: [{ op: 'sum', column: 'sales', alias: 'total' }], sort: base.sort, limit: 50, offset: 50 }) };
+assert.deepEqual(describeExecution(execution), { operation: 'Group and summarize', duration: '1.3 s', configuration: [
+  ['Filters', '("city" = "Paris")'], ['Group by', '"city"'], ['Measures', 'Sum of "sales" as "total"'],
+  ['Sort', '"sales" descending, nulls last'], ['Page size', '50 rows'], ['Offset', '50 rows'],
+] });
+assert.deepEqual(describeExecution({ ...execution, operation_type: 'rows', completed_at: null, parameters: '{}' }), { operation: 'Filter and view rows', configuration: [], duration: '—' });
+assert.deepEqual(describeExecution({ ...execution, operation_type: 'future', parameters: '{broken' }), { operation: 'Operation: future', configuration: [], duration: '1.3 s' });
+for (const [status, label] of [['succeeded', 'Succeeded'], ['failed', 'Failed'], ['cancelled', 'Cancelled'], ['interrupted', 'Interrupted'], ['running', 'Running'], ['queued', 'Queued']]) assert.equal(executionStatus(status), label);
 console.log('Analysis result freshness, export guard, and summary checks passed.');

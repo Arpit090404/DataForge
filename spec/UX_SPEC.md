@@ -44,6 +44,8 @@ With no project open, the central welcome state offers Create project and Open p
 
 An analytical result displays the exact operation configuration used for its successful execution. Editing query settings, starting another run, or failing validation/execution leaves the prior result visible but clearly stale. Export is unavailable until a successful result matches the current settings; pagination retains the original result configuration.
 
+Execution history presents the saved operation, available filters, grouping, measures, sort, page settings, status, and elapsed time in readable text. Optional settings absent from an older record are omitted. Selecting an entry reveals its full summary and any recorded error; a native Technical details disclosure retains the exact saved parameter string and execution provenance. History does not store result pages.
+
 The analysis builder presents operation choice and Run as the main path. Group by and aggregations appear when the grouping operation is selected. A native disclosure holds optional filters (including nested AND/OR groups), multi-column sorting, and page size. A short live summary beside Run states the current operation, filter and sort presence, grouping/measure counts when applicable, and rows per page. A validation failure opens the disclosure when its control is inside and displays the message beside that section. Results remain directly below the builder.
 
 ## Window and accessibility

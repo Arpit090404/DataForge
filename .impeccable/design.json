@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-18T12:59:34.837Z",
+  "generatedAt": "2026-11-18T19:50:48.487Z",
   "title": "Design System: DataForge",
   "extensions": {
     "colorMeta": {
@@ -402,9 +402,25 @@
         "displayName": "Title",
         "purpose": "Workspace headings."
       },
+      "section": {
+        "displayName": "Section",
+        "purpose": "Section headings."
+      },
+      "component": {
+        "displayName": "Component",
+        "purpose": "Compact headings and prominent controls."
+      },
       "body": {
         "displayName": "Body",
         "purpose": "Working copy and controls."
+      },
+      "secondary": {
+        "displayName": "Secondary",
+        "purpose": "Supporting labels and table content."
+      },
+      "meta": {
+        "displayName": "Metadata",
+        "purpose": "Status and dense metadata."
       },
       "code": {
         "displayName": "Code",
@@ -456,7 +472,7 @@
       "refersTo": "button-primary",
       "description": "Main action in a form or workspace.",
       "html": "<button class=\"ds-primary\">Create project</button>",
-      "css": ".ds-primary{height:36px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-default);background:var(--color-action);color:var(--color-action-text);font:650 12px var(--font-family-ui);cursor:pointer;transition:background-color .12s ease}.ds-primary:hover{background:var(--color-action-hover)}.ds-primary:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+      "css": ".ds-primary{height:var(--control-height-default);padding:0 var(--space-control-x);border:1px solid transparent;border-radius:var(--radius-default);background:var(--color-action);color:var(--color-action-text);font:var(--font-weight-semibold) var(--font-size-body) var(--font-family-ui);cursor:pointer;transition:background-color .12s ease}.ds-primary:hover{background:var(--color-action-hover)}.ds-primary:active{filter:brightness(.9)}.ds-primary:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}.ds-primary:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
     },
     {
       "name": "Secondary Button",
@@ -464,7 +480,7 @@
       "refersTo": "button-secondary",
       "description": "Ordinary adjacent action.",
       "html": "<button class=\"ds-secondary\">Browse</button>",
-      "css": ".ds-secondary{height:36px;padding:0 12px;border:1px solid var(--color-input-border);border-radius:var(--radius-default);background:var(--color-surface-elevated);color:var(--color-text);font:650 12px var(--font-family-ui);cursor:pointer;transition:background-color .12s ease}.ds-secondary:hover{background:var(--color-hover)}.ds-secondary:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+      "css": ".ds-secondary{height:var(--control-height-default);padding:0 var(--space-control-x);border:1px solid var(--color-input-border);border-radius:var(--radius-default);background:var(--color-surface-elevated);color:var(--color-text);font:var(--font-weight-semibold) var(--font-size-body) var(--font-family-ui);cursor:pointer;transition:background-color .12s ease}.ds-secondary:hover{background:var(--color-hover)}.ds-secondary:active{filter:brightness(.9)}.ds-secondary:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}.ds-secondary:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
     },
     {
       "name": "Ghost Button",
@@ -472,14 +488,14 @@
       "refersTo": "button-ghost",
       "description": "Low emphasis action.",
       "html": "<button class=\"ds-ghost\">Cancel</button>",
-      "css": ".ds-ghost{height:36px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-default);background:transparent;color:var(--color-text-secondary);font:650 12px var(--font-family-ui);cursor:pointer}.ds-ghost:hover{background:var(--color-hover);color:var(--color-text)}.ds-ghost:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+      "css": ".ds-ghost{height:var(--control-height-default);padding:0 var(--space-control-x);border:1px solid transparent;border-radius:var(--radius-default);background:transparent;color:var(--color-text-secondary);font:var(--font-weight-semibold) var(--font-size-body) var(--font-family-ui);cursor:pointer}.ds-ghost:hover{background:var(--color-hover);color:var(--color-text)}.ds-ghost:active{filter:brightness(.9)}.ds-ghost:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}.ds-ghost:disabled{opacity:.5;cursor:not-allowed}"
     },
     {
       "name": "Destructive Button",
       "kind": "button",
       "description": "Confirmed destructive action.",
       "html": "<button class=\"ds-destructive\">Delete</button>",
-      "css": ".ds-destructive{height:36px;padding:0 12px;border:1px solid var(--color-error-border);border-radius:var(--radius-default);background:var(--color-error-surface);color:var(--color-destructive);font:650 12px var(--font-family-ui);cursor:pointer}.ds-destructive:hover{background:var(--color-error-border)}.ds-destructive:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+      "css": ".ds-destructive{height:var(--control-height-default);padding:0 var(--space-control-x);border:1px solid var(--color-error-border);border-radius:var(--radius-default);background:var(--color-error-surface);color:var(--color-destructive);font:var(--font-weight-semibold) var(--font-size-body) var(--font-family-ui);cursor:pointer}.ds-destructive:hover{background:var(--color-error-border)}.ds-destructive:active{filter:brightness(.9)}.ds-destructive:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}.ds-destructive:disabled{opacity:.5;cursor:not-allowed}"
     },
     {
       "name": "Text Field",
@@ -487,14 +503,14 @@
       "refersTo": "input",
       "description": "Standard editable field.",
       "html": "<input class=\"ds-input\" aria-label=\"Project name\" placeholder=\"Project name\">",
-      "css": ".ds-input{height:36px;padding:0 12px;border:1px solid var(--color-input-border);border-radius:var(--radius-default);background:var(--color-surface);color:var(--color-text);font:400 12px var(--font-family-ui)}.ds-input::placeholder{color:var(--color-text-muted)}.ds-input:hover{border-color:var(--color-text-muted)}.ds-input:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+      "css": ".ds-input{height:var(--control-height-default);padding:0 var(--space-3);border:1px solid var(--color-input-border);border-radius:var(--radius-default);background:var(--color-surface);color:var(--color-text);font:var(--font-weight-normal) var(--font-size-body) var(--font-family-ui)}.ds-input::placeholder{color:var(--color-text-muted)}.ds-input:hover{border-color:var(--color-text-muted)}.ds-input:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}.ds-input[aria-invalid=true]{border-color:var(--color-error-border)}.ds-input:disabled{opacity:.5;cursor:not-allowed}"
     },
     {
       "name": "Mode Navigation",
       "kind": "nav",
       "description": "Centered workspace mode selector.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Workspace mode\"><button aria-pressed=\"true\">Chat</button><button aria-pressed=\"false\">Notebook</button><button aria-pressed=\"false\">Dashboard</button></nav>",
-      "css": ".ds-nav{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--color-surface-elevated);border-radius:var(--radius-default);background:var(--color-app-bg)}.ds-nav button{height:28px;padding:0 12px;border:0;border-radius:var(--radius-small);background:transparent;color:var(--color-text-muted);font:400 11px var(--font-family-ui);cursor:pointer}.ds-nav button:hover{color:var(--color-text)}.ds-nav button[aria-pressed=true]{background:var(--color-hover);color:var(--color-text)}.ds-nav button:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+      "css": ".ds-nav{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--color-surface-elevated);border-radius:var(--radius-default);background:var(--color-app-bg)}.ds-nav button{min-height:var(--control-height-small);padding:0 var(--space-3);border:0;border-radius:var(--radius-small);background:transparent;color:var(--color-text-muted);font:var(--font-weight-normal) var(--font-size-secondary) var(--font-family-ui);cursor:pointer}.ds-nav button:hover{color:var(--color-text)}.ds-nav button[aria-pressed=true]{background:var(--color-hover);color:var(--color-text)}.ds-nav button:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
     },
     {
       "name": "Status Badge",
@@ -509,7 +525,7 @@
       "kind": "custom",
       "description": "Selected source in the sidebar.",
       "html": "<button class=\"ds-source\"><span>survey.csv</span><small>CSV source</small></button>",
-      "css": ".ds-source{display:flex;flex-direction:column;gap:4px;min-width:180px;padding:8px;border:1px solid var(--color-border);border-radius:var(--radius-default);background:var(--color-selected);color:var(--color-text);text-align:left;font:400 12px var(--font-family-ui);cursor:pointer}.ds-source small{color:var(--color-text-subtle);font-size:10px}.ds-source:hover{background:var(--color-hover)}.ds-source:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
+      "css": ".ds-source{display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-default);background:var(--color-surface-elevated);color:var(--color-text);text-align:left;font:var(--font-weight-normal) var(--font-size-body) var(--font-family-ui);cursor:pointer}.ds-source small{color:var(--color-text-subtle);font-size:var(--font-size-meta)}.ds-source:hover{background:var(--color-surface-secondary)}.ds-source:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}"
     }
   ],
   "narrative": {
