@@ -29,6 +29,8 @@ type Aggregation = { op: 'count' | 'sum' | 'average' | 'min' | 'max' | 'distinct
 type AnalyticsRequest = { kind: 'rows' | 'group'; filters?: FilterExpr; sort?: SortSpec[]; group_by?: string[]; aggregations?: Aggregation[]; limit?: number; offset?: number };
 type Execution = { id: string; dataset_id: string; operation_type: string; parameters: string; started_at: string; completed_at: string | null; status: string; result_row_count: number | null; error_summary: string | null; duckdb_version: string | null; source_fingerprint: string };
 type AnalyticsResult = { execution: Execution; columns: { name: string; data_type: string }[]; rows: (string | null)[][]; total_rows: number | null; has_more: boolean };
+type AnalysisSettings = { kind: AnalyticsRequest['kind']; filters: FilterGroup; sort: SortSpec[]; groupBy: string[]; aggregations: Aggregation[]; limit: number };
+type DisplayedResult = { data: AnalyticsResult; request: AnalyticsRequest; settings: string; invalidated: boolean };
 
 const SIDEBAR_WIDTH_DEFAULT = 248;
 const SIDEBAR_WIDTH_MIN = 210;
@@ -339,6 +341,22 @@ function DatasetInspector({ dataset, inspection, execution }: { dataset: Dataset
 
 type FilterGroup = { op: 'and' | 'or'; conditions: FilterExpr[] };
 function isGroup(expr: FilterExpr): expr is FilterGroup { return 'conditions' in expr; }
+export function analysisSettingsKey(settings: AnalysisSettings): string { return JSON.stringify(settings); }
+export function isAnalysisResultStale(result: Pick<DisplayedResult, 'settings' | 'invalidated'> | null, settings: string): boolean {
+  return !result || result.invalidated || result.settings !== settings;
+}
+export function canExportAnalysisResult(result: Pick<DisplayedResult, 'settings' | 'invalidated'> | null, settings: string, loading: boolean): boolean {
+  return !!result && !loading && !isAnalysisResultStale(result, settings);
+}
+export function describeFilter(expr: FilterExpr): string {
+  if (isGroup(expr)) return `(${expr.conditions.map(describeFilter).join(` ${expr.op.toUpperCase()} `)})`;
+  const comparison: Record<Comparison, string> = { eq: '=', ne: '≠', gt: '>', lt: '<', ge: '≥', le: '≤', contains: 'contains', is_null: 'is null', is_not_null: 'is not null' };
+  return `${JSON.stringify(expr.column)} ${comparison[expr.op]}${expr.op === 'is_null' || expr.op === 'is_not_null' ? '' : ` ${JSON.stringify(expr.value ?? '')}`}`;
+}
+export function describeAggregation(item: Aggregation): string {
+  const operation: Record<Aggregation['op'], string> = { count: 'Count rows', sum: 'Sum', average: 'Average', min: 'Minimum', max: 'Maximum', distinct_count: 'Distinct count' };
+  return `${operation[item.op]}${item.op === 'count' ? '' : ` of ${JSON.stringify(item.column ?? '')}`} as ${JSON.stringify(item.alias)}`;
+}
 function cleaned(group: FilterGroup): FilterExpr | undefined {
   const conditions = group.conditions.flatMap(item => {
     if (isGroup(item)) { const nested = cleaned(item); return nested ? [nested] : []; }
@@ -376,8 +394,7 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   const [groupBy, setGroupBy] = useState<string[]>([]);
   const [aggregations, setAggregations] = useState<Aggregation[]>([{ op: 'count', alias: 'count_rows' }]);
   const [limit, setLimit] = useState(100);
-  const [result, setResult] = useState<AnalyticsResult | null>(null);
-  const [lastRequest, setLastRequest] = useState<AnalyticsRequest | null>(null);
+  const [displayed, setDisplayed] = useState<DisplayedResult | null>(null);
   const [history, setHistory] = useState<Execution[]>([]);
   const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null);
   useEffect(() => onSelectExecution(selectedExecution), [selectedExecution, onSelectExecution]);
@@ -386,6 +403,13 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const sortNames = kind === 'rows' ? names : [...groupBy, ...aggregations.map(item => item.alias)];
+  const settings = analysisSettingsKey({ kind, filters, sort, groupBy, aggregations, limit });
+  const result = displayed?.data;
+  const lastRequest = displayed?.request;
+  const stale = !!displayed && isAnalysisResultStale(displayed, settings);
+  const canExport = canExportAnalysisResult(displayed, settings, loading);
+  const exportState = useRef({ canExport, executionId: result?.execution.id });
+  exportState.current = { canExport, executionId: result?.execution.id };
 
   useEffect(() => { invoke<Execution[]>('list_executions').then(setHistory).catch(e => setError(errorMessage(e))); }, [dataset.id]);
   useEffect(() => {
@@ -400,11 +424,12 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
     return () => { current = false; window.clearInterval(timer); setActiveExecutionId(null); };
   }, [loading]);
 
-  async function execute(request: AnalyticsRequest) {
+  async function execute(request: AnalyticsRequest, requestSettings: string) {
+    setDisplayed(current => current && { ...current, invalidated: true });
     setLoading(true); setError(''); setNotice('');
     try {
       const next = await invoke<AnalyticsResult>('run_analytics', { datasetId: dataset.id, request });
-      setResult(next); setLastRequest(request); setSelectedExecution(next.execution);
+      setDisplayed({ data: next, request, settings: requestSettings, invalidated: false }); setSelectedExecution(next.execution);
       setHistory(await invoke<Execution[]>('list_executions'));
     } catch (e) {
       setError(errorMessage(e));
@@ -419,6 +444,8 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   }
 
   function run() {
+    setDisplayed(current => current && { ...current, invalidated: true });
+    setNotice('');
     if (incompleteFilter(filters)) { setError('Enter a value for each filter condition, or remove the unfinished condition.'); return; }
     if (sort.some(item => !sortNames.includes(item.column))) { setError('A sort column is no longer in the result. Update or remove it.'); return; }
     const validSort = sort.filter(item => sortNames.includes(item.column));
@@ -431,15 +458,18 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
     if (validFilters) request.filters = validFilters;
     if (validSort.length) request.sort = validSort;
     if (kind === 'group') { request.group_by = groupBy; request.aggregations = aggregations; }
-    void execute(request);
+    void execute(request, settings);
   }
 
   async function exportPage() {
-    if (!result) return;
+    if (!result || !canExport) return;
     setError(''); setNotice('');
     try {
       const path = await save({ defaultPath: `${dataset.name.replace(/\.csv$/i, '')}-result.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }], title: 'Export current result page' });
       if (typeof path !== 'string') return;
+      if (!exportState.current.canExport || exportState.current.executionId !== result.execution.id) {
+        setError('The result changed while choosing a file. Run the operation again before exporting.'); return;
+      }
       await invoke('export_result', { path, columns: result.columns.map(column => column.name), rows: result.rows });
       setNotice(`Saved ${result.rows.length} rows from the current page.`);
     } catch (e) { setError(errorMessage(e)); }
@@ -448,7 +478,7 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
   return <section className="analytics-panel" aria-label="Analytical operations">
     <div className="analytics-title"><div><span className="eyebrow">LOCAL ANALYTICS</span><h2>Explore this dataset</h2><p>Run bounded, application-defined operations on the registered CSV. No SQL or code entry.</p></div></div>
     <div className="analytics-builder">
-      <div className="analytics-field-row"><label>Operation<Select value={kind} onChange={e => { setKind(e.target.value as 'rows' | 'group'); setSort([]); setResult(null); }}><option value="rows">Filter and view rows</option><option value="group">Group and summarize</option></Select></label><label>Rows per page<Input type="number" min={1} max={200} value={limit} onChange={e => setLimit(Number(e.target.value))}/></label></div>
+      <div className="analytics-field-row"><label>Operation<Select value={kind} onChange={e => { setKind(e.target.value as 'rows' | 'group'); setSort([]); }}><option value="rows">Filter and view rows</option><option value="group">Group and summarize</option></Select></label><label>Rows per page<Input type="number" min={1} max={200} value={limit} onChange={e => setLimit(Number(e.target.value))}/></label></div>
       <div className="analytics-subheading">Filters <span>Optional · nested AND / OR groups</span></div>
       <FilterEditor group={filters} onChange={setFilters} columns={names} />
       {kind === 'group' && <><div className="analytics-subheading">Group by <span>Choose one or more columns</span></div><div className="group-chips">{names.map((name, index) => <label key={index}><input type="checkbox" checked={groupBy.includes(name)} onChange={e => setGroupBy(e.target.checked ? [...groupBy, name] : groupBy.filter(value => value !== name))}/>{name || '(unnamed)'}</label>)}</div><div className="analytics-subheading">Aggregations <span>At least one measure</span></div><div className="builder-list">{aggregations.map((item, index) => <div className="builder-row" key={index}><Select aria-label={`Aggregation ${index + 1} function`} value={item.op} onChange={e => setAggregations(current => current.map((value, i) => i === index ? { ...value, op: e.target.value as Aggregation['op'], column: e.target.value === 'count' ? undefined : (value.column ?? names[0]) } : value))}>{[['count','Count rows'],['sum','Sum'],['average','Average'],['min','Minimum'],['max','Maximum'],['distinct_count','Distinct count']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</Select>{item.op !== 'count' && <Select aria-label={`Aggregation ${index + 1} column`} value={item.column ?? ''} onChange={e => setAggregations(current => current.map((value, i) => i === index ? { ...value, column: e.target.value } : value))}>{names.map((name, i) => <option key={i} value={name}>{name || '(unnamed)'}</option>)}</Select>}<Input aria-label={`Aggregation ${index + 1} result name`} value={item.alias} onChange={e => setAggregations(current => current.map((value, i) => i === index ? { ...value, alias: e.target.value } : value))} placeholder="Result name"/>{aggregations.length > 1 && <IconButton label={`Remove aggregation ${index + 1}`} onClick={() => setAggregations(current => current.filter((_, i) => i !== index))}><X size={14}/></IconButton>}</div>)}</div><Button variant="secondary" size="small" onClick={() => setAggregations(current => [...current, { op: 'count', alias: `count_${current.length + 1}` }])}><Plus size={14}/> Add aggregation</Button></>}
@@ -456,7 +486,19 @@ function AnalyticsPanel({ dataset, columns, onSelectExecution }: { dataset: Data
       <div className="analytics-run"><span>Results are limited to 200 rows per page.</span><div className="analytics-run-actions">{loading && <Button variant="secondary" onClick={cancel} disabled={!activeExecutionId}>Cancel</Button>}<Button variant="primary" onClick={run} loading={loading}>{loading ? 'Running…' : 'Run operation'}<ArrowRight size={16}/></Button></div></div>
       {error && <div className="inline-error" role="alert"><CircleAlert size={16}/>{error}</div>}{notice && <div className="inline-success" role="status">{notice}</div>}
     </div>
-    {result && <div className="analytics-results"><div className="content-section-heading"><div><h2>Result</h2><p>{result.total_rows === null ? `${result.rows.length} rows on this page` : `${result.total_rows.toLocaleString()} matching rows · ${result.rows.length} on this page`}</p></div><Button variant="secondary" size="small" onClick={exportPage}><Download size={14}/> Export current page</Button></div><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j} title={value ?? 'null'}>{value === null ? <span className="null-value">null</span> : value}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div><div className="result-pagination"><span>Offset {lastRequest?.offset ?? 0}</span><Button variant="secondary" size="small" disabled={loading || !lastRequest?.offset} onClick={() => lastRequest && void execute({ ...lastRequest, offset: Math.max(0, (lastRequest.offset ?? 0) - (lastRequest.limit ?? 100)) })}>Previous</Button><Button variant="secondary" size="small" disabled={loading || !result.has_more} onClick={() => lastRequest && void execute({ ...lastRequest, offset: (lastRequest.offset ?? 0) + (lastRequest.limit ?? 100) })}>Next</Button></div></div>}
+    {result && lastRequest && displayed && <div className="analytics-results">
+      <div className="content-section-heading"><div><h2>Result</h2><p>{result.total_rows === null ? `${result.rows.length} rows on this page` : `${result.total_rows.toLocaleString()} matching rows · ${result.rows.length} on this page`}</p></div><Button variant="secondary" size="small" onClick={exportPage} disabled={!canExport}><Download size={14}/> Export current page</Button></div>
+      {stale && <div className="result-stale" role="status"><CircleAlert size={16}/><span>{loading ? 'Previous result. A new operation is running; export is unavailable.' : displayed.invalidated ? 'Previous result. The latest attempt did not complete; run the operation again before exporting.' : 'Previous result. Settings changed; run the operation again before exporting.'}</span></div>}
+      <div className="result-configuration"><strong>Configuration for this result</strong><dl>
+        <div><dt>Operation</dt><dd>{lastRequest.kind === 'group' ? 'Group and summarize' : 'Filter and view rows'}</dd></div>
+        <div><dt>Filters</dt><dd>{lastRequest.filters ? describeFilter(lastRequest.filters) : 'None'}</dd></div>
+        {lastRequest.kind === 'group' && <><div><dt>Group by</dt><dd>{lastRequest.group_by?.length ? lastRequest.group_by.map(name => JSON.stringify(name)).join(', ') : 'All rows together'}</dd></div><div><dt>Measures</dt><dd>{lastRequest.aggregations?.map(describeAggregation).join('; ') || 'None'}</dd></div></>}
+        <div><dt>Sort</dt><dd>{lastRequest.sort?.length ? lastRequest.sort.map(item => `${JSON.stringify(item.column)} ${item.direction === 'asc' ? 'ascending' : 'descending'}, nulls ${item.nulls}`).join('; ') : 'Unspecified'}</dd></div>
+        <div><dt>Page</dt><dd>Starts at row {(lastRequest.offset ?? 0) + 1}; up to {lastRequest.limit ?? 100} rows</dd></div>
+      </dl></div>
+      <div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j} title={value ?? 'null'}>{value === null ? <span className="null-value">null</span> : value}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div>
+      <div className="result-pagination"><span>Offset {lastRequest.offset ?? 0}</span><Button variant="secondary" size="small" disabled={loading || !lastRequest.offset} onClick={() => void execute({ ...lastRequest, offset: Math.max(0, (lastRequest.offset ?? 0) - (lastRequest.limit ?? 100)) }, displayed.settings)}>Previous</Button><Button variant="secondary" size="small" disabled={loading || !result.has_more} onClick={() => void execute({ ...lastRequest, offset: (lastRequest.offset ?? 0) + (lastRequest.limit ?? 100) }, displayed.settings)}>Next</Button></div>
+    </div>}
     <div className="analytics-history"><div className="content-section-heading"><div><h2>Execution history</h2><p>Saved in this project. Earlier result pages are not stored.</p></div></div>{history.filter(item => item.dataset_id === dataset.id).length ? <div className="history-list">{history.filter(item => item.dataset_id === dataset.id).map(item => <button key={item.id} className={selectedExecution?.id === item.id ? 'selected' : ''} onClick={() => setSelectedExecution(item)}><span>{item.operation_type === 'group' ? 'Group and summarize' : 'Filter and view rows'}</span><small>{new Date(item.started_at).toLocaleString()} · {item.status}</small></button>)}</div> : <TableEmpty>No analytical operations have been run for this source.</TableEmpty>}{selectedExecution && <div className="execution-details"><div className="analytics-subheading">Execution details</div><dl><div><dt>Status</dt><dd>{selectedExecution.status}</dd></div><div><dt>Rows returned</dt><dd>{selectedExecution.result_row_count ?? '—'}</dd></div><div><dt>Engine</dt><dd>{selectedExecution.duckdb_version ? `DuckDB ${selectedExecution.duckdb_version}` : '—'}</dd></div><div><dt>Source fingerprint</dt><dd className="mono" title={selectedExecution.source_fingerprint}>{selectedExecution.source_fingerprint.slice(0, 16)}…</dd></div><div><dt>Completed</dt><dd>{selectedExecution.completed_at ? new Date(selectedExecution.completed_at).toLocaleString() : '—'}</dd></div></dl>{selectedExecution.error_summary && <p className="inline-error">{selectedExecution.error_summary}</p>}<pre>{(() => { try { return JSON.stringify(JSON.parse(selectedExecution.parameters), null, 2); } catch { return selectedExecution.parameters; } })()}</pre></div>}</div>
   </section>;
 }

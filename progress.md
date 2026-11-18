@@ -3,6 +3,12 @@
 **Updated:** 2026-11-18
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Analysis result freshness (2026-11-18)
+
+The analytics panel now pairs each displayed result with its exact successful structured request and a snapshot of the query form. Edits to operation, filters, grouping, measures, sort, or page size mark the prior result stale; so do a new run, validation failure, or unsuccessful execution (including a cancelled run). The result remains visible with an explicit stale message and a readable summary of the executed configuration. Export is disabled while stale or running, and the handler checks again after the file picker returns. Pagination still uses the successful request and retains its associated form snapshot. DuckDB execution, history, cancellation, and CSV export commands are unchanged.
+
+**Verification:** `node tests/analysis-result.cjs`, `.\node_modules\.bin\tsc.cmd --noEmit`, and `node tests/design-system.cjs` passed in `apps/desktop`. The focused regression check covers all six query-setting categories, failed-rerun invalidation, export eligibility, and nested filter/aggregation summary text. Native WebView2 and the Tauri save dialog were not exercised; the UI check is limited to TypeScript and source-level guard inspection.
+
 ## Impeccable design record (2026-11-18)
 
 Root `DESIGN.md` now records the implemented dark desktop visual system in portable frontmatter and prose; `.impeccable/design.json` carries the corresponding color metadata and eight component previews. The record mirrors `spec/DESIGN_SYSTEM.md` and the current CSS/shared components. No application UI or behavior changed. Static checks confirmed 28 extracted color values, eight sidecar previews, valid JSON, and no whitespace errors. The Impeccable engine could not initialize in this restricted environment, so its own parser and live panel were not run; no new native visual verification was performed.
