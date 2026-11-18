@@ -1,7 +1,17 @@
 # DataForge progress
 
-**Updated:** 2026-11-17
+**Updated:** 2026-11-18
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
+
+## Product UI redesign, Task 1.2 workspace centering (2026-11-18)
+
+The shell continues to use Task 1.1's live `--sidebar-width` and its existing two/three-column grid with `minmax(0,1fr)` for the central track. The workspace is now a CSS inline-size container: the documented narrow insets and compact Notebook Home/analytics layouts respond when the **central track** is at most 700 px, including when both sidebars consume a wide window. Symmetric scrollbar gutters keep centered Welcome and empty-state content on the track's centerline when a vertical scrollbar appears. The column profile scrolls inside its section instead of widening the application. Notebook Home and Editor retain their approximately 1,120 px centered content limits; source tables retain the available central width. No sidebar state, resizing behavior, dependencies, backend behavior, or design contract changed.
+
+**Files changed:** `apps/desktop/src/styles.css` and this file.
+
+**Checks:** `node tests/design-system.cjs` passed in `apps/desktop`, and `git diff --check` passed. A live Vite browser layout check measured center tracks of 621/583/491 px at a 1,101 px viewport with a 270 px inspector and left sidebar widths of 210/248/340 px. At 900 px, the inspector displayed as none and its grid column was released; the center measured 690/652/560 px for those left widths. Centered Welcome content had zero horizontal centerline error and the document had no horizontal overflow in these cases. Toggling the inspector at 1,101 px changed the center from 583 to 853 px. A temporary DOM layout probe confirmed compact Notebook Home columns and internal profile scrolling at the narrowest center width. A CSS-only simulation of Notebook's collapsed left sidebar yielded a single central track. The browser screenshot endpoint timed out twice and the fallback computer browser was unavailable, so no screenshot-based visual review or native WebView2 interaction check was completed. No full suite, build, or type check ran.
+
+**Remaining:** Verify actual pointer drag, Notebook Home/Editor and Dashboard mode transitions, inspector toggle, and result tables in the native app, including 900 × 600. The browser probes establish geometry but not native visual quality or live project-backed Notebook interactions. Task 1.3 has not started.
 
 ## Product UI redesign, Task 1.1 left sidebar resizing (2026-11-17)
 
