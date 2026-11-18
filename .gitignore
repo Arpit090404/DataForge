@@ -52,3 +52,6 @@ reports/generated/
 logs/
 tmp/
 temp/
+
+# Skills
+.agents
