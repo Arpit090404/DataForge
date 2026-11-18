@@ -3,9 +3,9 @@
 **Status:** Draft baseline | **Name:** DataForge (working name) | **Platform:** Windows-first
 
 ## Vision
-DataForge is an agent-assisted data investigation workspace. Users bring files or connect databases, define an analytical objective, and supervise an agent through a reproducible investigation. They can inspect the conversation, notebook executions, datasets, charts, findings, and reports while preserving the relationship between them.
+DataForge is an agentic data analysis and deep-investigation platform. Users bring files or connect databases, pose complex analytical questions, and supervise an agent through a reproducible, multi-step investigation. They can inspect visible plans, analytical actions, intermediate results, datasets, findings, and reports while preserving the relationship between them.
 
-It is not merely a chatbot that generates charts. It is a workspace for conducting, inspecting, validating, and communicating analytical work.
+The agent's analytical work is the central workflow. Users collaborate with it to explore data, test hypotheses, discover patterns, validate results, and develop evidence-backed conclusions; notebooks, dashboards, and reports support that workflow.
 
 ## Problem
 General-purpose agents can write SQL and Python, but their work is scattered across terminals, files, notebooks, and chat transcripts. Users struggle to verify inputs, methods, claims, and reproducibility. Traditional BI tools offer structured visualization but often require manual preparation.
@@ -14,7 +14,7 @@ General-purpose agents can write SQL and Python, but their work is scattered acr
 Students, analysts, researchers, and general users exploring structured data. The product should be approachable without hiding technical details needed for auditability.
 
 ## Positioning
-A shared project space combining agent-assisted planning, application-defined local analytics, an inspectable notebook, interactive dashboards, evidence-linked findings, and reproducible reports. General submitted SQL and arbitrary Python are possible later capabilities after security approval.
+A shared project space for supervised agent-led analysis, application-defined local analytics, inspectable plans and executions, an analytical notebook, dashboards, evidence-linked findings, and reproducible reports. General submitted SQL and arbitrary Python are possible later capabilities after security approval. Provider-private internal reasoning is not a capability the interface may promise.
 
 ## Principles
 1. Investigation-first: chat is an interface; the investigation is the durable unit.

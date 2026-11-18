@@ -1,6 +1,6 @@
 # DataForge
 
-Windows-first, local-first desktop workspace for agent-assisted data investigations.
+Windows-first, local-first desktop platform for agentic data analysis and deep investigations.
 
 **Initial agent:** Codex through ACP. **Working name:** DataForge.
 
