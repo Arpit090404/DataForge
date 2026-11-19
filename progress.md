@@ -3,6 +3,12 @@
 **Updated:** 2026-11-19
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook execution provenance (2026-11-19)
+
+The Notebook saved-execution picker now identifies the current registered source, saved operation and bounded parameter summary, start time, and short execution ID. A selected execution and each Result block expose the full execution ID, dataset ID, source fingerprint, and original parameters in disclosures. Result blocks label recorded row counts and explain that loading replays the pinned representation rather than retrieving a saved snapshot; unsorted row order may vary. Source names come from the existing project dataset list, with an unavailable fallback. No backend, schema, or execution behavior changed.
+
+**Verification:** `node tests/notebook-provenance.cjs`, `node tests/analysis-result.cjs`, `.\node_modules\.bin\tsc.cmd --noEmit`, and `node tests/design-system.cjs` passed in `apps/desktop`. `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml materializes_and_runs_fixed_operations` passed 1 focused Rust test, including available and unavailable pinned-representation replay. Native WebView2 layout and interaction were not checked; no full suite or application build was run.
+
 ## Notebook Home list states (2026-11-19)
 
 Notebook Home now distinguishes initial loading, a loaded list, a successful zero-notebook project, initial list failure, and retry in progress. Retry calls `list_notebooks` again; later refresh failures retain the last loaded list with separate error feedback. Notebook and execution-history reads are independent. Request generations and effect cleanup discard stale list responses when Notebook becomes inactive or the project component remounts. Search, sort, and management paths remain in place.
