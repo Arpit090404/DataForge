@@ -3,6 +3,18 @@
 **Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook Home visual specification (2026-11-20)
+
+`spec/NOTEBOOK_HOME_REDESIGN.md` now specifies the Notebook Home project resource browser: one heading action, shared search/sort/management controls, a compact four-column list that becomes a two-line row when the central workspace is narrow, and distinct truthful loading, empty, search-empty, error, and retry states. It records the source-backed component mapping, exact 1440 × 900 and 900 × 600 layout behavior, current gaps, and small implementation tasks. This is design guidance only; no application source, CSS, shared component, global token, shell, or Notebook Editor change was made.
+
+**Evidence and limits:** Current Home source, styles, shared controls, design contracts, and the latest Notebook progress notes were reviewed. Impeccable layout/type source detection returned `[]`, which does not establish rendered quality. No running Home or native WebView2 screen was inspected; no build or test suite was run for this documentation task.
+
+## Notebook visual-system specification (2026-11-20)
+
+`spec/NOTEBOOK_VISUAL_SYSTEM.md` now defines a shadcn-first Notebook visual contract from the current shared components, semantic tokens, Notebook CSS, and prior reference analysis. It maps standard controls to existing shared variants, keeps the document/cells/Result provenance custom, and specifies type, surface, spacing, focus, loading, error, and unavailable states. No new shared variant or global token is currently justified. This is a proposed design direction; no application source, CSS, component, or `DESIGN.md` change was made for this task.
+
+**Evidence and limits:** Source and design-system review found local Notebook control styling and typography/focus rules to rationalize in later tasks. Impeccable's focused source detector returned `[]`, which does not verify rendered quality. No current rendered or native WebView2 visual check, build, or test suite was performed.
+
 ## Notebook Databricks reference analysis (2026-11-20)
 
 `spec/NOTEBOOK_REFERENCE_ANALYSIS.md` records documented Databricks notebook patterns and adopts or adapts only those that fit DataForge's project-scoped Home, continuous editor, editable Code/Text cells and saved-execution Result blocks. The target keeps the existing shadcn/Base UI component foundation, hover/focus insertion, save and keyboard behavior, and truthful pinned-representation replay. Databricks runtime, job, collaboration, tab and advanced table controls are excluded from this redesign direction. No application code, styles, shared components or global design tokens changed for this task.
