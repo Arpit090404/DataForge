@@ -3,6 +3,12 @@
 **Updated:** 2026-11-19
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook cell affordances (2026-11-19)
+
+Selecting a preview Text or Code cell now reveals a contextual Edit action that enters its existing editor. The insertion controls directly above and below the selected cell remain visible, while other boundaries still appear on hover or keyboard focus. Insertion choices, ordering, cell menu actions, keyboard shortcuts, double-click editing, and persistence paths remain unchanged. Insertion buttons now name their target cell boundary for assistive technology.
+
+**Verification:** In `apps/desktop`, `.\node_modules\.bin\tsc.cmd --noEmit`, `node tests/notebook-keys.cjs`, and `node tests/design-system.cjs` passed. Source inspection confirmed selected-cell boundary mapping, first/last/empty insertion paths, Edit click propagation, and existing keyboard/menu/double-click handlers. Native WebView2 appearance, pointer interaction, and keyboard focus traversal were not exercised; no full suite or build was run.
+
 ## Notebook execution provenance (2026-11-19)
 
 The Notebook saved-execution picker now identifies the current registered source, saved operation and bounded parameter summary, start time, and short execution ID. A selected execution and each Result block expose the full execution ID, dataset ID, source fingerprint, and original parameters in disclosures. Result blocks label recorded row counts and explain that loading replays the pinned representation rather than retrieving a saved snapshot; unsorted row order may vary. Source names come from the existing project dataset list, with an unavailable fallback. No backend, schema, or execution behavior changed.
