@@ -187,11 +187,14 @@
 .notebook-block.selected{background:var(--color-surface-secondary);border-left-color:var(--color-accent)}
 .notebook-block.editing{background:var(--color-surface-secondary);border-left-color:var(--color-focus-ring)}
 .notebook-block-toolbar{min-height:29px;padding:2px 10px 2px 16px;color:var(--color-text-muted)}
-.notebook-block-toolbar select{min-width:74px;background:transparent;border:0;color:var(--color-accent)}
+.notebook-block-toolbar>span{margin-right:auto}
+.notebook-block-toolbar select{margin-left:0;min-width:74px;background:transparent;border:0;color:var(--color-accent)}
 .notebook-insertion{height:26px;position:relative;z-index:4}
 .notebook-insertion::before{content:"";position:absolute;left:16px;right:16px;top:12px;border-top:1px solid transparent;transition:border-color .12s ease}
+.notebook-insertion.selected::before{border-color:var(--color-border)}
 .notebook-insertion:hover::before,.notebook-insertion:focus-within::before{border-color:var(--color-text-subtle)}
 .notebook-insertion-actions{top:0;height:26px;min-width:164px;background:var(--color-surface-secondary);border-color:var(--color-text-subtle);pointer-events:none;transform:translateX(-50%) scale(.96);transition:opacity .12s ease,transform .12s ease}
+.notebook-insertion.selected .notebook-insertion-actions{opacity:.75;pointer-events:auto;transform:translateX(-50%) scale(1)}
 .notebook-insertion:hover .notebook-insertion-actions,.notebook-insertion:focus-within .notebook-insertion-actions{opacity:1;pointer-events:auto;transform:translateX(-50%) scale(1)}
 .notebook-insertion-actions button{padding:4px 9px}
 .notebook-markdown{padding:7px 18px 13px;font-size:var(--font-size-component);line-height:1.72;color:var(--color-text)}
