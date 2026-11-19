@@ -5,9 +5,9 @@
 
 ## Notebook cell affordances (2026-11-19)
 
-Selecting a preview Text or Code cell now reveals a contextual Edit action that enters its existing editor. The insertion controls directly above and below the selected cell remain visible, while other boundaries still appear on hover or keyboard focus. Insertion choices, ordering, cell menu actions, keyboard shortcuts, double-click editing, and persistence paths remain unchanged. Insertion buttons now name their target cell boundary for assistive technology.
+Selecting a preview Text or Code cell reveals a contextual Edit action that enters its existing editor. Insertion controls appear on hover or keyboard focus at cell boundaries, including those above and below the selected cell. Insertion choices, ordering, cell menu actions, keyboard shortcuts, double-click editing, and persistence paths remain unchanged. Insertion buttons name their target cell boundary for assistive technology.
 
-**Verification:** In `apps/desktop`, `.\node_modules\.bin\tsc.cmd --noEmit`, `node tests/notebook-keys.cjs`, and `node tests/design-system.cjs` passed. Source inspection confirmed selected-cell boundary mapping, first/last/empty insertion paths, Edit click propagation, and existing keyboard/menu/double-click handlers. Native WebView2 appearance, pointer interaction, and keyboard focus traversal were not exercised; no full suite or build was run.
+**Verification:** In `apps/desktop`, `.\node_modules\.bin\tsc.cmd --noEmit`, `node tests/notebook-keys.cjs`, and `node tests/design-system.cjs` passed. Source inspection confirmed first/last/empty insertion paths, Edit click propagation, and existing keyboard/menu/double-click handlers. Native WebView2 appearance, pointer interaction, and keyboard focus traversal were not exercised; no full suite or build was run.
 
 ## Notebook execution provenance (2026-11-19)
 
