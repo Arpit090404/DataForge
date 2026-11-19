@@ -27,6 +27,8 @@ The Notebook editor fills the available workspace height and scrolls independent
 
 Contextual insertion controls appear on hover or keyboard focus at cell boundaries, including above the first and below the last cell. They offer + Code and + Text without reserving a tall permanent gap. Their hover area is stable across pointer movement, does not cover content, and their actions persist a cell at the indicated position, select it, and focus its editor. A selected Text or Code cell in preview mode shows a contextual Edit action. The cell menu gives a keyboard-accessible editing, insertion, and movement alternative. In command mode, clicking selects a cell; Up/Down changes selection, Enter edits selected Text or Code, A/B insert Text above/below, and D twice within a short visible confirmation window deletes the selected cell. Escape returns to command mode. Normal editor typing, text selection, and cursor navigation stay in the editor; Tab inserts two spaces in a Code editor and Shift+Tab moves focus. Shift+Enter saves the current source cell and selects the next without executing or replaying; Ctrl+Enter saves without moving; Ctrl+S saves title and source drafts. Drafts survive view switching; project switching retains its discard protection. Reopening restores persisted content and order from the existing project store and a sensible selection.
 
+The cell menu presents available Edit/Preview first, then Code/Text insertion above or below, movement, and destructive Delete. The Shortcuts popover groups command-mode, editing, and saving keys; save descriptions must not imply code execution.
+
 **Dashboard:** generated charts, tables, metrics, and findings.
 
 These are views over one investigation model, not separate apps or duplicated state.

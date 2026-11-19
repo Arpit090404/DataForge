@@ -1,7 +1,33 @@
 # DataForge progress
 
-**Updated:** 2026-11-19
+**Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
+
+## Notebook Databricks reference analysis (2026-11-20)
+
+`spec/NOTEBOOK_REFERENCE_ANALYSIS.md` records documented Databricks notebook patterns and adopts or adapts only those that fit DataForge's project-scoped Home, continuous editor, editable Code/Text cells and saved-execution Result blocks. The target keeps the existing shadcn/Base UI component foundation, hover/focus insertion, save and keyboard behavior, and truthful pinned-representation replay. Databricks runtime, job, collaboration, tab and advanced table controls are excluded from this redesign direction. No application code, styles, shared components or global design tokens changed for this task.
+
+**Evidence and limits:** Official Databricks editing, navigation, cell organization, output, management and appearance documentation was reviewed. The live Databricks product and documentation image pixels were not inspected; observations are limited to documented controls and behavior. No build or test suite was run.
+
+## Notebook shadcn foundation audit (2026-11-19)
+
+`spec/NOTEBOOK_REDESIGN_BASELINE.md` now maps current Notebook Home and Editor controls to the installed shared shadcn-style components and specifies a small-task redesign sequence. The current Notebook imports no raw Base UI; the main shared-layer gaps are locally styled standard triggers and a raw Back button. Domain-specific document cells, insertion boundaries, Home rows and Result presentation remain custom. No application code, components, styles or design tokens were changed for this audit.
+
+**Evidence and limits:** Current source, design contracts and shared component implementations were inspected. The Impeccable source detector returned `[]`. A Vite web preview mounted the current `NotebookWorkspace` with in-memory data, but its screenshot endpoint failed to produce frames, so visual appearance was not certified; the preview did not exercise Tauri or native WebView2. No build or test suite was run.
+
+## Notebook responsive review (2026-11-19)
+
+Current Notebook Home and Editor source, styles, and design contracts were reviewed. A current-source Tauri development app was launched and its 1440 × 900 shell was captured, but Notebook Home and Editor were not reached before the user stopped computer use. No Notebook-specific visual defect was confirmed, so no layout or presentation fix was made. The temporary review project and tooling files were removed.
+
+**Focused checks:** `npm.cmd run tauri:dev` compiled and launched the current source before UI work stopped. In `apps/desktop`, `.\node_modules\.bin\tsc.cmd --noEmit`, `node tests/notebook-keys.cjs`, and `node tests/design-system.cjs` passed. Impeccable's source detector returned `[]`; `git diff --check` passed. No full test suite or production build was run.
+
+**Remaining:** Rendered Home and Editor checks at 1440 × 900 and 900 × 600, Sources open/closed, long content, Result tables, menus, loading/error/unavailable states, high-DPI scaling, and accessibility remain unverified. Source review alone cannot clear these visual checks.
+
+## Notebook cell menu and Shortcuts (2026-11-19)
+
+The cell menu now places Edit/Preview first when applicable, followed by the four Code/Text insertion actions, movement, and destructive Delete. The Shortcuts popover groups command-mode, editing, and saving keys and states that saving does not run code. No actions, key mappings, or insertion visibility rules changed.
+
+**Verification:** In `apps/desktop`, `.\node_modules\.bin\tsc.cmd --noEmit`, `node tests/notebook-keys.cjs`, and `node tests/design-system.cjs` passed. Impeccable's focused detector returned `[]`. Menu handlers and hover/focus insertion rules were checked in source. Native WebView2 menu navigation and popover layout remain unverified; no full suite or build was run.
 
 ## Notebook cell affordances (2026-11-19)
 
