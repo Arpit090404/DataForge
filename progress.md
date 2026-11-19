@@ -7,6 +7,8 @@
 
 Selecting a preview Text or Code cell reveals a contextual Edit action that enters its existing editor. Insertion controls appear on hover or keyboard focus at cell boundaries, including those above and below the selected cell. Insertion choices, ordering, cell menu actions, keyboard shortcuts, double-click editing, and persistence paths remain unchanged. Insertion buttons name their target cell boundary for assistive technology.
 
+After a sample preview review, the selected-cell rule that kept adjacent Code/Text insertion buttons visible was removed. The contextual Edit action remains.
+
 **Verification:** In `apps/desktop`, `.\node_modules\.bin\tsc.cmd --noEmit`, `node tests/notebook-keys.cjs`, and `node tests/design-system.cjs` passed. Source inspection confirmed first/last/empty insertion paths, Edit click propagation, and existing keyboard/menu/double-click handlers. Native WebView2 appearance, pointer interaction, and keyboard focus traversal were not exercised; no full suite or build was run.
 
 ## Notebook execution provenance (2026-11-19)

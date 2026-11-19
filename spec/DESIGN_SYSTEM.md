@@ -93,7 +93,7 @@ Every interactive control needs default, hover, active, focus-visible, disabled,
 
 Form controls retain native `required` and disabled semantics. Mark validation failures with `aria-invalid="true"` to use the error-border token, associate labels through `htmlFor`/`id` or an enclosing label, and connect field-level helper or error text with `aria-describedby` when present. A read-only field remains focusable and selectable unless a specific workflow requires otherwise.
 
-The notebook search field sits inside a separately bordered search container, and the notebook title, compact cell-language selector, and code/text editors have contextual padding and focus treatments. Standard project, analytics, rename, sort, and execution controls use the shared 12 px horizontal padding.
+The notebook search field sits inside a separately bordered search container, and the notebook title, compact cell-language selector, and code/text editors have contextual padding and focus treatments. A selected preview Code or Text cell shows a small contextual Edit action. Boundary Code/Text insertion controls reveal on hover or keyboard focus, not selection alone; their accessible names identify the insertion position. Standard project, analytics, rename, sort, and execution controls use the shared 12 px horizontal padding.
 
 Examples: `<Button variant="primary">Create project</Button>`, `<Button variant="ghost" size="small">Back</Button>`, `<Button variant="icon" aria-label="Hide sidebar">…</Button>`, and `<Input aria-label="Search notebooks" />`. Use the shared `Select` for standard choices. A notebook cell may have a specialized editor surface; its controls still use shared tokens and states.
 
