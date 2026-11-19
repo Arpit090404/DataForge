@@ -53,6 +53,8 @@ function ResultBlock({ executionId, execution: historyExecution }: { executionId
 
 export default function NotebookWorkspace({ active, onDirtyChange, projectName }: { active: boolean; onDirtyChange: (dirty: boolean) => void; projectName?: string }) {
   const [notebooks, setNotebooks] = useState<Summary[]>([]);
+  const [listStatus, setListStatus] = useState<'loading' | 'retrying' | 'ready' | 'error'>('loading');
+  const [listError, setListError] = useState('');
   const [notebook, setNotebook] = useState<Notebook | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [languages, setLanguages] = useState<Record<string, 'python' | 'sql'>>({});
@@ -70,6 +72,8 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
   const [deleteArmed, setDeleteArmed] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ kind: 'notebook' | 'cell'; id: string; title?: string } | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRequest = useRef(0);
+  const listPending = useRef(false);
   const cellRefs = useRef<Record<string, HTMLElement | null>>({});
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -80,7 +84,27 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
   useEffect(() => { if (active && editingId) { editorRef.current?.focus(); const [start, end] = cursor.current[editingId] ?? [0, 0]; editorRef.current?.setSelectionRange(start, end); } }, [active, editingId]);
   useEffect(() => { if (renamingId) requestAnimationFrame(() => renameInputRef.current?.focus()); }, [renamingId]);
   useEffect(() => () => { if (deleteTimer.current) clearTimeout(deleteTimer.current); }, []);
-  async function refresh() { setNotebooks(await invoke<Summary[]>('list_notebooks')); }
+  async function refresh() {
+    const request = ++listRequest.current;
+    listPending.current = false;
+    const notes = await invoke<Summary[]>('list_notebooks');
+    if (request === listRequest.current) { setNotebooks(notes); setListStatus('ready'); setListError(''); }
+  }
+  async function loadList(mode: 'initial' | 'retry' | 'refresh') {
+    if (listPending.current) return;
+    listPending.current = true;
+    const request = ++listRequest.current;
+    if (mode !== 'refresh') setListStatus(mode === 'retry' ? 'retrying' : 'loading');
+    try {
+      const notes = await invoke<Summary[]>('list_notebooks');
+      if (request !== listRequest.current) return;
+      setNotebooks(notes); setListStatus('ready'); setListError('');
+    } catch (e) {
+      if (request !== listRequest.current) return;
+      if (mode === 'refresh') setError(message(e));
+      else { setListError(message(e)); setListStatus('error'); }
+    } finally { if (request === listRequest.current) listPending.current = false; }
+  }
   async function saveHomeRename() {
     if (!renamingId) return;
     if (renameTitle !== notebooks.find(item => item.id === renamingId)?.title) {
@@ -92,8 +116,9 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
   useEffect(() => {
     if (!active) return;
     let current = true;
-    Promise.all([invoke<Summary[]>('list_notebooks'), invoke<Execution[]>('list_executions')]).then(([notes, runs]) => { if (current) { setNotebooks(notes); setExecutions(runs.filter(run => run.status === 'succeeded')); } }).catch(e => { if (current) setError(message(e)); });
-    return () => { current = false; };
+    void loadList(listStatus === 'ready' ? 'refresh' : listStatus === 'error' ? 'retry' : 'initial');
+    invoke<Execution[]>('list_executions').then(runs => { if (current) setExecutions(runs.filter(run => run.status === 'succeeded')); }).catch(e => { if (current) setError(message(e)); });
+    return () => { current = false; listRequest.current++; listPending.current = false; };
   }, [active]);
   async function action(work: () => Promise<void>) {
     setBusy(true); setError('');
@@ -167,7 +192,6 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
     }
     if (!selected) return;
     if (command === 'edit') { if (selected.kind !== 'result') setEditingId(selected.id); return; }
-    if (command === 'markdown') return;
     if (command === 'prev' || command === 'next') { const next = notebook.blocks[index + (command === 'prev' ? -1 : 1)]; if (next) { select(next.id); focusCell(next.id); } return; }
     if (command === 'above' || command === 'below') { void action(() => insert('markdown', selected.id, command === 'above' ? 'before' : 'after')); return; }
     if (command === 'delete') armDelete(selected.id, event.repeat);
@@ -178,9 +202,11 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
   return <div className={`notebook-workspace ${notebook ? 'notebook-editor' : 'notebook-home'}`} onKeyDown={onKeyDown}>
     {error && <div className="inline-error" role="alert">{error}</div>}
     {!notebook ? <>
-      <div className="notebook-heading"><div><span className="notebook-heading-icon"><BookOpen size={20}/></span><span className="eyebrow">{projectName ?? 'Current project'}</span><h1>Notebooks</h1><p>Keep notes, code, and saved analytical results together.</p></div><Button variant="primary" disabled={busy} onClick={() => void action(async () => { await saveHomeRename(); const next = await invoke<Notebook>('create_notebook', { title: 'Untitled Notebook' }); setNotebook(next); setTitle(next.title); setSelectedId(null); setEditingId(null); await refresh(); })}><Plus size={16}/> New Notebook</Button></div>
-      <div className="notebook-home-controls"><label className="notebook-search"><Search size={16}/><span className="sr-only">Search notebooks</span><Input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search notebooks" /></label><label className="notebook-sort">Sort by <Select value={sort} onChange={event => setSort(event.target.value as 'modified' | 'name')}><option value="modified">Last modified</option><option value="name">Name</option></Select></label></div>
-      <div className="notebook-home-list"><div className="notebook-home-columns"><span>Name</span><span>Modified</span><span>Cells</span><span className="sr-only">Actions</span></div>{visibleNotebooks.map(item => <div className="notebook-home-row" key={item.id}>
+      <div className="notebook-heading"><div><span className="notebook-heading-icon"><BookOpen size={20}/></span><span className="eyebrow">{projectName ?? 'Current project'}</span><h1>Notebooks</h1><p>Keep notes, code, and saved analytical results together.</p></div><Button variant="primary" disabled={busy || listStatus !== 'ready'} onClick={() => void action(async () => { await saveHomeRename(); const next = await invoke<Notebook>('create_notebook', { title: 'Untitled Notebook' }); setNotebook(next); setTitle(next.title); setSelectedId(null); setEditingId(null); await refresh(); })}><Plus size={16}/> New Notebook</Button></div>
+      <div className="notebook-home-controls"><label className="notebook-search"><Search size={16}/><span className="sr-only">Search notebooks</span><Input disabled={listStatus !== 'ready'} value={search} onChange={event => setSearch(event.target.value)} placeholder="Search notebooks" /></label><label className="notebook-sort">Sort by <Select disabled={listStatus !== 'ready'} value={sort} onChange={event => setSort(event.target.value as 'modified' | 'name')}><option value="modified">Last modified</option><option value="name">Name</option></Select></label></div>
+      <div className="notebook-home-list">{listStatus === 'loading' ? <div className="notebook-home-empty" role="status"><p>Loading notebooks…</p></div>
+        : listStatus === 'error' || listStatus === 'retrying' ? <div className="notebook-home-empty" role={listStatus === 'error' ? 'alert' : 'status'}><h2>Could not load notebooks</h2><p>{listError || 'Try again.'}</p><Button loading={listStatus === 'retrying'} onClick={() => void loadList('retry')}>{listStatus === 'retrying' ? 'Retrying…' : 'Retry'}</Button></div>
+          : <><div className="notebook-home-columns"><span>Name</span><span>Modified</span><span>Cells</span><span className="sr-only">Actions</span></div>{visibleNotebooks.map(item => <div className="notebook-home-row" key={item.id}>
         {renamingId === item.id ? <form onSubmit={event => { event.preventDefault(); void action(saveHomeRename); }}><Input ref={renameInputRef} aria-label="Notebook title" maxLength={120} autoFocus value={renameTitle} onChange={event => setRenameTitle(event.target.value)}/><Button size="small" disabled={busy}>Save</Button><Button size="small" type="button" disabled={busy} onClick={() => setRenamingId(null)}>Cancel</Button></form>
           : <><button className="notebook-home-open" disabled={busy} onClick={() => void action(async () => { await saveHomeRename(); await load(item.id); })}><BookOpen size={16}/><strong>{item.title}</strong></button><span className="notebook-home-date">{new Date(item.updated_at).toLocaleString()}</span><span className="notebook-home-count">{item.block_count}</span></>}
         <DropdownMenu><DropdownMenuTrigger className="notebook-menu-trigger notebook-cell-menu" aria-label={`Actions for ${item.title}`}>⋯</DropdownMenuTrigger><DropdownMenuContent>
@@ -188,9 +214,9 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
           <DropdownMenuSeparator />
           <DropdownMenuItem destructive disabled={busy} onClick={() => setPendingDelete({ kind: 'notebook', id: item.id, title: item.title })}>Delete</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>
-      </div>)}{!visibleNotebooks.length && <div className="notebook-home-empty"><BookOpen size={28}/><h2>{notebooks.length ? 'No matching notebooks' : 'Your notebooks start here'}</h2><p>{notebooks.length ? 'Try a different search.' : 'Write text and code, then add saved analytical results as your investigation grows.'}</p>{!notebooks.length && <Button variant="primary" disabled={busy} onClick={() => void action(async () => { const next = await invoke<Notebook>('create_notebook', { title: 'Untitled Notebook' }); setNotebook(next); setTitle(next.title); await refresh(); })}>Create Notebook</Button>}</div>}</div>
+      </div>)}{!visibleNotebooks.length && <div className="notebook-home-empty"><BookOpen size={28}/><h2>{notebooks.length ? 'No matching notebooks' : 'Your notebooks start here'}</h2><p>{notebooks.length ? 'Try a different search.' : 'Write text and code, then add saved analytical results as your investigation grows.'}</p>{!notebooks.length && <Button variant="primary" disabled={busy} onClick={() => void action(async () => { const next = await invoke<Notebook>('create_notebook', { title: 'Untitled Notebook' }); setNotebook(next); setTitle(next.title); await refresh(); })}>Create Notebook</Button>}</div>}</>}</div>
     </> : <>
-      <div className="notebook-editor-toolbar"><button className="notebook-back" disabled={busy} onClick={() => void action(async () => { await saveNotebook(); setNotebook(null); setSelectedId(null); setEditingId(null); await refresh(); })}>← Notebooks</button><div className="notebook-title"><label htmlFor="notebook-title" className="sr-only">Notebook title</label><Input id="notebook-title" maxLength={120} disabled={busy} value={title} onChange={e => setTitle(e.target.value)}/><span className="notebook-save-status" role="status">{busy ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}</span></div><div className="notebook-toolbar-actions"><span className="notebook-runtime" title="Code execution is not available">No runtime</span><DropdownMenu><DropdownMenuTrigger className="notebook-menu-trigger notebook-new-menu">+ Cell</DropdownMenuTrigger><DropdownMenuContent className="min-w-[115px]"><DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('code'))}>Code</DropdownMenuItem><DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('markdown'))}>Text</DropdownMenuItem></DropdownMenuContent></DropdownMenu><Button disabled={busy || !dirty} onClick={() => void action(saveNotebook)}>Save</Button><Popover><PopoverTrigger className="notebook-help-trigger">Shortcuts</PopoverTrigger><PopoverContent><PopoverTitle className="sr-only">Shortcuts</PopoverTitle><div>Esc command · Enter edit · ↑ ↓ select · A/B insert Text above/below · D D delete · Shift+Enter save and next · Ctrl+Enter save · M Markdown · Ctrl+S save notebook</div></PopoverContent></Popover></div></div>
+      <div className="notebook-editor-toolbar"><button className="notebook-back" disabled={busy} onClick={() => void action(async () => { await saveNotebook(); setNotebook(null); setSelectedId(null); setEditingId(null); await refresh(); })}>← Notebooks</button><div className="notebook-title"><label htmlFor="notebook-title" className="sr-only">Notebook title</label><Input id="notebook-title" maxLength={120} disabled={busy} value={title} onChange={e => setTitle(e.target.value)}/><span className="notebook-save-status" role="status">{busy ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}</span></div><div className="notebook-toolbar-actions"><span className="notebook-runtime" title="Code execution is not available">No runtime</span><DropdownMenu><DropdownMenuTrigger className="notebook-menu-trigger notebook-new-menu">+ Cell</DropdownMenuTrigger><DropdownMenuContent className="min-w-[115px]"><DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('code'))}>Code</DropdownMenuItem><DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('markdown'))}>Text</DropdownMenuItem></DropdownMenuContent></DropdownMenu><Button disabled={busy || !dirty} onClick={() => void action(saveNotebook)}>Save</Button><Popover><PopoverTrigger className="notebook-help-trigger">Shortcuts</PopoverTrigger><PopoverContent><PopoverTitle className="sr-only">Shortcuts</PopoverTitle><div>Esc command · Enter edit · ↑ ↓ select · A/B insert Text above/below · D D delete · Shift+Enter save and next · Ctrl+Enter save · Ctrl+S save notebook</div></PopoverContent></Popover></div></div>
       <div className="notebook-blocks">{notebook.blocks.map((block, index) => {
         const draft = drafts[block.id] ?? block.content; const language = languages[block.id] ?? block.language;
         const changed = draft !== block.content || language !== block.language; const selected = selectedId === block.id; const editing = editingId === block.id;

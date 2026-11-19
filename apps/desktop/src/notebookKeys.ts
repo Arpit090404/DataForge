@@ -12,7 +12,7 @@ export function decideNotebookKey(event: NotebookKey, editing: boolean, interact
   if (event.shiftKey) return key === 'enter' && (!interactive || editing) ? 'save-next' : null;
   if (interactive) return null;
   if (editing) return null;
-  return ({ escape: 'command', enter: 'edit', arrowup: 'prev', arrowdown: 'next', a: 'above', b: 'below', d: 'delete', m: 'markdown' } as Record<string, string>)[key] ?? null;
+  return ({ escape: 'command', enter: 'edit', arrowup: 'prev', arrowdown: 'next', a: 'above', b: 'below', d: 'delete' } as Record<string, string>)[key] ?? null;
 }
 
 export function decideDeletePress(armedId: string | null, selectedId: string, repeat: boolean): 'ignore' | 'arm' | 'delete' {
