@@ -13,9 +13,10 @@ keyModule._compile(compiled, filename);
 const { decideNotebookKey, decideDeletePress, indentCode } = keyModule.exports;
 const key = (name, flags = {}, editing = false, interactive = false) => decideNotebookKey({ key: name, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...flags }, editing, interactive);
 
-for (const [name, expected] of Object.entries({ Escape: 'command', Enter: 'edit', ArrowUp: 'prev', ArrowDown: 'next', A: 'above', b: 'below', d: 'delete', M: 'markdown' })) {
+for (const [name, expected] of Object.entries({ Escape: 'command', Enter: 'edit', ArrowUp: 'prev', ArrowDown: 'next', A: 'above', b: 'below', d: 'delete' })) {
   assert.equal(key(name), expected, name);
 }
+assert.equal(key('M'), null);
 assert.equal(key('Enter', { shiftKey: true }), 'save-next');
 assert.equal(key('Enter', { ctrlKey: true }), 'save');
 assert.equal(key('s', { ctrlKey: true }), 'save-notebook');
