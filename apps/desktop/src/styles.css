@@ -212,6 +212,10 @@
 .notebook-code-output{border-top:1px solid var(--color-hover);padding:7px 14px;color:var(--color-text-muted);font-size:var(--font-size-meta);letter-spacing:.01em}
 .notebook-output{border-top:0;margin:0 14px 12px;padding:8px 0 0}
 .notebook-add{padding:14px 0 46px;border-top:1px solid var(--color-hover)}
+.notebook-add .ui-select{flex:1;min-width:0}
+.notebook-execution-choice-details{flex-basis:100%;color:var(--color-text-muted);font-size:var(--font-size-meta)}
+.notebook-execution-choice-details pre{white-space:pre-wrap;overflow-wrap:anywhere}
+.notebook-result-meta span{overflow-wrap:anywhere}
 .notebook-empty-hint{padding:54px 0 48px}
 .notebook-empty-hint p{margin:0 0 14px}
 .notebook-empty-hint>div{display:flex;justify-content:center;gap:8px}

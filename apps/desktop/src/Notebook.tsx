@@ -12,6 +12,7 @@ import { Textarea } from './components/ui/textarea';
 import { Markdown } from './Markdown';
 import { decideDeletePress, decideNotebookKey, indentCode } from './notebookKeys';
 import { filterNotebooks, sortNotebooks } from './notebookHome';
+import { describeNotebookExecution, notebookExecutionLabel, registeredSourceName } from './notebookProvenance';
 import { BookOpen, Plus, Search } from 'lucide-react';
 
 type Execution = { id: string; dataset_id: string; operation_type: string; parameters: string; started_at: string; completed_at: string | null; status: string; result_row_count: number | null; error_summary: string | null; duckdb_version: string | null; source_fingerprint: string };
@@ -19,6 +20,7 @@ type Result = { execution: Execution; columns: { name: string; data_type: string
 type Block = { id: string; notebook_id: string; position: number; kind: 'markdown' | 'code' | 'result'; content: string; language: 'python' | 'sql' | null; execution_id: string | null; created_at: string; updated_at: string };
 type Notebook = { id: string; title: string; created_at: string; updated_at: string; blocks: Block[] };
 type Summary = { id: string; title: string; updated_at: string; block_count: number };
+type Source = { id: string; name: string };
 
 function InsertionSlot({ disabled, insert }: { disabled: boolean; insert: (kind: 'code' | 'markdown') => void }) {
   return <div className="notebook-insertion"><div className="notebook-insertion-actions"><button type="button" disabled={disabled} onClick={() => insert('code')}>+ Code</button><button type="button" disabled={disabled} onClick={() => insert('markdown')}>+ Text</button></div></div>;
@@ -30,7 +32,7 @@ function message(error: unknown) {
   return 'The notebook operation could not be completed.';
 }
 
-function ResultBlock({ executionId, execution: historyExecution }: { executionId: string; execution?: Execution }) {
+function ResultBlock({ executionId, execution: historyExecution, sources }: { executionId: string; execution?: Execution; sources: Source[] }) {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -42,16 +44,17 @@ function ResultBlock({ executionId, execution: historyExecution }: { executionId
     return () => { current = false; };
   }, [executionId, attempt]);
   const execution = result?.execution ?? historyExecution;
+  const description = execution && describeNotebookExecution(execution);
   return <div className="notebook-output">
-    <div className="notebook-result-meta"><strong>{execution?.operation_type === 'group' ? 'Group and summarize' : 'Filter and view rows'}</strong><span>{execution?.dataset_id ?? 'Source unavailable'} · {execution?.status ?? 'Saved execution'} · {execution?.result_row_count ?? '—'} rows</span>{execution && <small>{new Date(execution.started_at).toLocaleString()} · {execution.duckdb_version ? `DuckDB ${execution.duckdb_version}` : 'Engine unavailable'}</small>}</div>
-    {!attempt || error ? <div className="notebook-unavailable">{error && <p role="status">Result unavailable: {error}</p>}<Button size="small" onClick={() => setAttempt(value => value + 1)}>{error ? 'Retry result' : 'Load result'}</Button></div>
-      : !result ? <p className="notebook-muted">Loading saved execution…</p>
-        : <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div><p className="notebook-muted">Showing {result.rows.length} rows{result.has_more ? ' · more rows available in the original operation' : ''}. Loaded from the pinned representation.</p></>}
-    <details><summary>Execution details</summary><small>Execution ID: {executionId}{execution && <> · Fingerprint: {execution.source_fingerprint}</>}</small>{execution && <pre>{execution.parameters}</pre>}</details>
+    <div className="notebook-result-meta"><strong>{description?.operation ?? 'Saved execution'}</strong><span>{execution ? `Registered source: ${registeredSourceName(execution, sources)}` : 'Source unavailable'} · {execution?.result_row_count ?? '—'} recorded rows</span>{description && <span>{description.summary}</span>}{execution && <small>{new Date(execution.started_at).toLocaleString()}</small>}</div>
+    {!attempt || error ? <div className="notebook-unavailable">{error && <p role="status">Result unavailable: {error}</p>}{!error && <p>Load replays the saved operation against its pinned representation.</p>}<Button size="small" onClick={() => setAttempt(value => value + 1)}>{error ? 'Retry result' : 'Load result'}</Button></div>
+      : !result ? <p className="notebook-muted">Replaying saved execution…</p>
+        : <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div><p className="notebook-muted">Showing {result.rows.length} rows{result.has_more ? ' · more rows available in the original operation' : ''}. Replayed from the pinned representation, not a saved snapshot. Without a saved sort, row order may vary.</p></>}
+    <details><summary>Execution details</summary><small>Execution ID: {executionId}{execution && <><br/>Dataset ID: {execution.dataset_id}<br/>Source fingerprint: {execution.source_fingerprint}<br/>Recorded status: {execution.status}<br/>Engine: {execution.duckdb_version ? `DuckDB ${execution.duckdb_version}` : 'Unavailable'}</>}</small>{execution && <><div>Original parameters</div><pre>{execution.parameters}</pre></>}</details>
   </div>;
 }
 
-export default function NotebookWorkspace({ active, onDirtyChange, projectName }: { active: boolean; onDirtyChange: (dirty: boolean) => void; projectName?: string }) {
+export default function NotebookWorkspace({ active, onDirtyChange, projectName, sources }: { active: boolean; onDirtyChange: (dirty: boolean) => void; projectName?: string; sources: Source[] }) {
   const [notebooks, setNotebooks] = useState<Summary[]>([]);
   const [listStatus, setListStatus] = useState<'loading' | 'retrying' | 'ready' | 'error'>('loading');
   const [listError, setListError] = useState('');
@@ -235,13 +238,13 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName }
               <DropdownMenuSeparator />
               <DropdownMenuItem destructive disabled={busy} onClick={() => setPendingDelete({ kind: 'cell', id: block.id })}>Delete</DropdownMenuItem>
             </DropdownMenuContent></DropdownMenu></div>
-          {block.kind === 'result' ? block.execution_id ? <ResultBlock executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)}/> : <p>Execution reference unavailable.</p>
+          {block.kind === 'result' ? block.execution_id ? <ResultBlock executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)} sources={sources}/> : <p>Execution reference unavailable.</p>
             : editing ? <div className={block.kind === 'code' ? 'notebook-code-frame' : 'notebook-text-frame'}>{block.kind === 'code' && <span className="notebook-code-prompt" aria-label="Code not run">[ ]</span>}<Textarea ref={editorRef} rows={Math.max(3, draft.split('\n').length + 1)} className={block.kind === 'code' ? 'notebook-code-editor' : ''} aria-label={`${label} cell ${index + 1} editor`} value={draft} readOnly={busy} spellCheck={block.kind === 'markdown'} onKeyDown={event => { if (block.kind !== 'code' || event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return; event.preventDefault(); const [value, start, end] = indentCode(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd); setDrafts(current => ({ ...current, [block.id]: value })); cursor.current[block.id] = [start, end]; requestAnimationFrame(() => editorRef.current?.setSelectionRange(start, end)); }} onSelect={event => { cursor.current[block.id] = [event.currentTarget.selectionStart, event.currentTarget.selectionEnd]; }} onChange={event => { const value = event.target.value; setDrafts(current => { const next = { ...current }; if (value === block.content) delete next[block.id]; else next[block.id] = value; return next; }); }}/>{block.kind === 'code' && <div className="notebook-code-output">No output · execution unavailable</div>}</div>
               : block.kind === 'markdown' ? <div className="notebook-preview" onDoubleClick={() => setEditingId(block.id)}><Markdown text={draft}/></div>
                 : <div className="notebook-code-preview" onDoubleClick={() => setEditingId(block.id)}><div className="notebook-code-source"><span className="notebook-code-prompt" aria-label="Code not run">[ ]</span><pre>{draft || 'Press Enter to write code.'}</pre></div><div className="notebook-code-output">No output · execution unavailable</div></div>}
         </section></Fragment>;
       })}<InsertionSlot disabled={busy} insert={kind => void action(() => insert(kind, notebook.blocks.at(-1)?.id, notebook.blocks.length ? 'after' : undefined))}/>{!notebook.blocks.length && <div className="notebook-empty-hint"><p>Add a cell to begin this notebook.</p><div><Button disabled={busy} onClick={() => void action(() => insert('code'))}>+ Code</Button><Button disabled={busy} onClick={() => void action(() => insert('markdown'))}>+ Text</Button></div></div>}</div>
-      {!!executions.length && <div className="notebook-add"><label htmlFor="execution-select">Saved execution</label><Select id="execution-select" value={executionId} onChange={e => setExecutionId(e.target.value)}><option value="">Choose an execution</option>{executions.map(item => <option key={item.id} value={item.id}>{new Date(item.started_at).toLocaleString()} · {item.operation_type} · {item.id.slice(0, 8)}</option>)}</Select><Button disabled={busy || !succeeded} onClick={() => void action(async () => { const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId }); await reload(); setSelectedId(block.id); focusCell(block.id); })}>Add result</Button></div>}
+      {!!executions.length && <div className="notebook-add"><label htmlFor="execution-select">Saved execution</label><Select id="execution-select" value={executionId} onChange={e => setExecutionId(e.target.value)}><option value="">Choose an execution</option>{executions.map(item => <option key={item.id} value={item.id}>{notebookExecutionLabel(item, sources)}</option>)}</Select><Button disabled={busy || !succeeded} onClick={() => void action(async () => { const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId }); await reload(); setSelectedId(block.id); focusCell(block.id); })}>Add result</Button>{succeeded && <details className="notebook-execution-choice-details"><summary>Selected execution details</summary><small>Execution ID: {succeeded.id}<br/>Dataset ID: {succeeded.dataset_id}<br/>Source fingerprint: {succeeded.source_fingerprint}<br/>Recorded status: {succeeded.status}</small><div>Original parameters</div><pre>{succeeded.parameters}</pre></details>}</div>}
     </>}
     <ConfirmationDialog open={pendingDelete !== null} title={pendingDelete?.kind === 'notebook' ? 'Delete notebook?' : 'Delete cell?'} description={pendingDelete?.kind === 'notebook' ? `Delete “${pendingDelete.title}” and all its cells? This cannot be undone.` : 'Delete this cell? This cannot be undone.'} confirmLabel="Delete" destructive onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete}/>
   </div>;
