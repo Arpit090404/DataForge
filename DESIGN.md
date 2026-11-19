@@ -208,7 +208,7 @@ Source badges use ready, changed, and missing tones with text labels. Menus, pop
 
 ### Tables and notebook
 
-Shared native table primitives support CSV previews, analytical results, and notebook result replay. Headers stick within bounded scroll regions; wide data scrolls horizontally. Notebook Home uses a compact list, while editor cells make a continuous, readable document with subdued insertion and selection cues.
+Shared native table primitives support CSV previews, analytical results, and notebook result replay. Headers stick within bounded scroll regions; wide data scrolls horizontally. Notebook Home uses a compact list, while editor cells make a continuous, readable document. Selection uses a quiet left edge and exposes a contextual Edit action for preview Code and Text cells. Code/Text insertion controls at cell boundaries appear on hover or keyboard focus; selecting a cell alone does not keep them visible.
 
 ## Do's and Don'ts
 

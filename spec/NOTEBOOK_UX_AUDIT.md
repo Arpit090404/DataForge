@@ -6,6 +6,8 @@
 
 **Method:** Repository and specification inspection plus independent Impeccable design and detector assessments. No application build, full test suite, or new native interaction test was run for this audit. Findings marked **Confirmed** follow directly from the current source; **Verify** items need a live Windows WebView check.
 
+**Follow-up (2026-11-19):** The cell-affordance finding below records the original audit state and recommendation. The editor now shows a contextual Edit action for a selected preview Code or Text cell. A trial that kept adjacent Code/Text insertion controls visible on selection was reverted after preview review; insertion controls now reveal on hover or keyboard focus only. The remaining audit text is historical and should not be read as a current implementation map.
+
 The Impeccable detector command, `.agents/skills/impeccable/scripts/impeccable.cmd detect --json apps/desktop/src/Notebook.tsx`, returned `[]` (zero source-scan findings). No current native app or CDP listener was available; existing executables predate the Notebook source. No rendered screenshots, overlay, or live contrast results were obtained. A clean source scan does not clear the interaction findings below.
 
 ## Executive assessment
