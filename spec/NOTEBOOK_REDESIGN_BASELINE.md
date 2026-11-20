@@ -1,6 +1,6 @@
 # Notebook redesign baseline: shared shadcn component foundation
 
-**Status:** Investigation and specification only, 2026-11-19. Current source and current design contracts take precedence over the historical findings in `spec/NOTEBOOK_UX_AUDIT.md`.
+**Status:** Historical source baseline, 2026-11-19; reconciled 2026-11-20. The implementation map and gaps below describe the source at investigation time. Current source and `spec/NOTEBOOK_REDESIGN_SPEC.md` take precedence. Notebook Home now uses a small New Notebook action aligned with the title, adjacent 28 px search/sort controls, and the shared sidebar with a Threads-to-Sources mode transition. The Editor and cell design work remains separate. The earlier findings in `spec/NOTEBOOK_UX_AUDIT.md` are also historical.
 
 ## Assessment
 

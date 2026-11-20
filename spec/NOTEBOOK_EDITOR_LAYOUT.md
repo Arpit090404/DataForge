@@ -4,7 +4,7 @@
 
 ## 1. Goal and selected direction
 
-Make the Editor read as one project notebook used for investigation: the document title leads, saving is legible, commands are compact, and the cells carry the main visual weight. The Databricks reference contributes a named analytical document and restrained command hierarchy, not compute controls. This is an **Operate** surface: stable alignment and access to evidence matter more than decorative framing. Keep the shell's native title bar, global toolbar and optional Sources sidebar. The global toolbar already supplies project context; do not repeat a long project path inside the Editor.
+Make the Editor read as one project notebook used for investigation: the document title leads, saving is legible, commands are compact, and the cells carry the main visual weight. The Databricks reference contributes a named analytical document and restrained command hierarchy, not compute controls. This is an **Operate** surface: stable alignment and access to evidence matter more than decorative framing. Keep the shell's native title bar, global toolbar and optional shared Sources sidebar. The now-implemented Chat-to-Notebook transition collapses Threads and raises Sources within that same sidebar; the Editor layout adds no second navigation surface. The global toolbar already supplies project context; do not repeat a long project path inside the Editor.
 
 All recommendations below are **presentation-only** unless explicitly called an interaction refinement. No backend, persistence, shortcut, or cell operation changes are proposed. Code remains inert; Result cells replay saved application-defined executions on demand and retain their provenance and unavailable states.
 
@@ -110,4 +110,4 @@ At zoom or long localized strings, let the second header row wrap without moving
 4. **Cell sequence rhythm.** Align the cell and saved-execution section to one track and token spacing, while preserving the 26 px hover/focus insertion band and selected Edit action. **Presentation-only.**
 5. **Responsive acceptance.** Inspect current-source Editor at 1440 × 900 and 900 × 600 with Sources open at 210/248/340 px and closed. Use long titles, long Code lines, many cells, wide Results, zoom, menus and the Shortcuts popover. Verify scroll containment, title priority, keyboard order, focus and header height before adjusting optical details. **Verification only; no behavior change.**
 
-No backend/schema, global token, shell, Notebook Home or detailed cell-internal change follows from this specification. The implementation tasks above are future work; none has been executed here.
+No backend/schema, global token, Notebook Home or detailed cell-internal change follows from this Editor specification. The shared sidebar transition was implemented during the later Home refinement and is treated here as existing shell behavior. The Editor implementation tasks above remain future work.

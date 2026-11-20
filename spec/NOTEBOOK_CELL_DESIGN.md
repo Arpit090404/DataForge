@@ -1,6 +1,6 @@
 # Notebook cell visual design
 
-**Status:** Implementation specification, 2026-11-20. Source-based design only; no application UI was changed or rendered for this task. The shared cell track and Editor header are specified in `spec/NOTEBOOK_EDITOR_LAYOUT.md`; this document specifies the three cell interiors. `spec/DESIGN_SYSTEM.md` and `spec/NOTEBOOK_VISUAL_SYSTEM.md` remain the token and component contracts.
+**Status:** Cell implementation specification, 2026-11-20. Cell internals remain unimplemented by this design task; the later Home control and shared-sidebar refinement does not alter their blueprint. The Editor track and header are specified in `spec/NOTEBOOK_EDITOR_LAYOUT.md`; this document specifies the three cell interiors. At either target width, calculate cell room from the same resizable Chat/Notebook sidebar after Threads collapses and Sources fills it. `spec/DESIGN_SYSTEM.md` and `spec/NOTEBOOK_VISUAL_SYSTEM.md` remain the token and component contracts.
 
 ## 1. Shared cell grammar
 

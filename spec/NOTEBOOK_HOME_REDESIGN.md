@@ -1,5 +1,7 @@
 # Notebook Home redesign: project resource browser
 
+**Status:** Home composition and the later compact-control/sidebar refinements are implemented in source. Browser preview checks used an in-memory fixture; native Windows WebView2 acceptance remains open.
+
 **Status:** Implementation specification, 2026-11-20. This is a source-based design decision, not a rendered validation or an implemented screen. The active contracts in `spec/DESIGN_SYSTEM.md`, `spec/UX_SPEC.md`, and `spec/NOTEBOOK_VISUAL_SYSTEM.md` govern implementation.
 
 ## 1. Objective and visual direction
@@ -10,7 +12,7 @@ The operating path is **project context → Notebooks → search or scan → ope
 
 ## 2. Final page composition and textual blueprint
 
-The native title bar, 44 px global toolbar, optional resizable Sources sidebar, and central workspace remain shell-owned. Home scrolls inside the central workspace; it does not create an inspector, composer, or another navigation rail. The top toolbar already identifies the project, and the Home eyebrow repeats its name to make the list's scope unambiguous. If the name is unavailable, retain the existing “Current project” fallback; never imply a cross-project list. **[Presentation-only]**
+The native title bar, 44 px global toolbar, and resizable shared Chat/Notebook sidebar remain shell-owned. In Notebook mode, Threads collapses and Sources rises to fill the available sidebar space; returning to Chat restores Threads. Home scrolls inside the central workspace. The Home eyebrow repeats the active project name with the existing Current project fallback. **[Presentation-only for Home; interaction refinement for mode transition]**
 
 Within the central track, use one left-aligned content column with `--space-page` (32 px) side margins when room permits and a maximum content width of 1120 px. Reduce margins to `--space-panel` (16 px) when the center track is at most 700 px wide. The content order and alignment are:
 
@@ -21,7 +23,7 @@ Sources sidebar (optional) │ Central Notebook Home scroll area
                            │ Notebooks                  [New Notebook]
                            │ Keep notes, code, and saved analytical results together.
                            │
-                           │ [Search notebooks____________]  Sort by [Last modified v]
+                           ? [Search notebooks____] [Last modified v]
                            │
                            │ ┌──────────────────────────────────────────────────────┐
                            │ │ NAME                 MODIFIED       CELLS   ACTIONS │
@@ -30,7 +32,7 @@ Sources sidebar (optional) │ Central Notebook Home scroll area
                            │ └──────────────────────────────────────────────────────┘
 ```
 
-Project eyebrow, heading, and description form a tight left stack. Align the primary `New Notebook` Button with the top of this heading group at wide widths, never with the list header. Use `--space-section` (24 px) between heading and controls, `--space-4` (16 px) between controls and list, and `--space-2`/`--space-1` within the text stack. The description is one factual line, not a second feature pitch. Remove the large decorative notebook icon from the heading; the list's small notebook icon is enough identity. **[Presentation-only]**
+Project eyebrow, heading, and description form a tight left stack. Align the small primary `New Notebook` Button with the Notebooks title line. Use `--space-section` (24 px) between heading and controls, `--space-4` (16 px) between controls and list, and `--space-2`/`--space-1` within the text stack. The description is one factual line. The list's small notebook icon provides resource identity. **[Presentation-only]**
 
 The global error area, when populated by a later refresh or management failure, appears immediately below the heading and before the controls. It displays the existing error message and leaves previously loaded rows visible. No error is styled as a successful zero-notebook result. This relocates existing feedback without changing its state logic. **[Presentation-only]**
 
@@ -48,9 +50,9 @@ Resting rows use the list surface and a fine separator, with no individual card 
 
 ## 4. Search, sort, creation, and management
 
-`New Notebook` is the sole primary Button, default 36 px, with a 16 px Plus icon and visible label. It creates the existing untitled notebook and opens Editor immediately. Disable it during initial loading, initial error/retry, or an in-flight mutation as current code does. **[Presentation-only]**
+`New Notebook` is the sole primary Button, small 28 px, with a 16 px Plus icon and visible label. It creates the existing untitled notebook and opens Editor immediately. Disable it during initial loading, initial error/retry, or an in-flight mutation as current code does. **[Presentation-only]**
 
-Search is a labeled shared Input, default 36 px, with a 16 px Search icon in a Notebook-owned container; keep one visible enclosing focus treatment. It searches titles only, case-insensitively, using the current `filterNotebooks` behavior. Give search the flexible width, capped near the current 380 px; the accessible label is “Search notebooks.” Sorting is the shared native Select, default 36 px, visually paired with the visible `Sort by` label and only the existing `Last modified` (newest first) and `Name` (A–Z) choices. Both fields are disabled until the initial list is ready; they remain usable with a successfully loaded empty project. **[Presentation-only]**
+Search is a labeled shared Input in a 28 px Notebook-owned container with a 16 px Search icon and one enclosing focus treatment. It searches titles only, case-insensitively, using the current `filterNotebooks` behavior. Give search flexible width up to 280 px; the accessible label is “Search notebooks.” The shared native Select sits immediately beside it at 28 px high and 120 px wide, with a screen-reader-only “Sort notebooks” label and the existing `Last modified` (newest first) and `Name` (A–Z) choices. Both fields are disabled until the initial list is ready; they remain usable with a successfully loaded empty project. **[Presentation-only]**
 
 The row's 28 px `⋯` action is a shared `DropdownMenuTrigger` composed with the shared `Button variant="icon"` presentation (the Button maps this variant to its 28 px icon size). Give it an accessible name including the notebook title and a shared Tooltip labeled “Notebook actions”; verify that the Base UI trigger and Tooltip composition preserves opening, focus return, and event isolation. Keep the trigger visibly present at rest, including at narrow widths, so actions do not depend on hover. The shared `DropdownMenuContent`, `DropdownMenuItem`, and separator supply `Rename` and destructive `Delete`; there is no right-click-only action. **[Presentation-only; interaction refinement for trigger composition verification]**
 
@@ -77,14 +79,14 @@ Changing the successful empty state to one visible create button removes duplica
 
 ## 6. Responsive layout and overflow
 
-Use the **central workspace container width** for the breakpoint, as current CSS already does. The 900 px window can leave only about 560 px for the center when Sources is at its 340 px maximum; the default 248 px sidebar leaves about 652 px. A viewport-only 850 px rule misses this variation. The existing 210–340 px sidebar and collapse behavior stay untouched. **[Presentation-only]**
+Use the **central workspace container width** for the breakpoint. The 900 px window can leave about 560 px for the center with Sources at 340 px; default 248 px leaves about 652 px. Keep 210?340 px resizing and optional collapse. The mode transition collapses Threads with reduced-motion support and lets Sources fill the sidebar. **[Presentation-only for Home; interaction refinement for mode transition]**
 
 | Window and actual center | Composition | Visible resource information |
 | --- | --- | --- |
-| **1440 × 900**, Sources open at default 248 px: center about 1192 px; content capped at 1120 px. With Sources at 340 px: center about 1100 px. | Heading stack and New Notebook share the first group. Search stays left and sort right in one 36 px control row. Four-column list begins below. | Title, full local modified display, numeric cell count, and persistent menu trigger. Long titles truncate within name column; no horizontal page overflow. |
-| **900 × 600**, Sources open at default 248 px: center about 652 px; at 340 px: about 560 px; at 210 px: about 690 px. Content width is roughly 528–658 px after 16 px side margins. | Use a two-line resource row at center widths ≤700 px. Heading keeps project, title, description and primary action above controls; action wraps beneath the title stack if text or zoom requires. Search occupies the first control line at full available width; `Sort by` and its Select start the second control line. Keep DOM and focus order: heading action, search, sort, then list. | Name and persistent 28 px menu occupy the first line. Under the name, show the real modified display and `N cells` in secondary text; allow that metadata to wrap rather than clip. The header reduces to `Name` with screen-reader `Actions`; no empty Modified/Cells headers. |
+| **1440 x 900**, Sources at default 248 px: center about 1192 px; content capped at 1120 px. At 340 px: center about 1100 px. | Small New Notebook aligns with title. Search up to 280 px and sort at 120 px sit together in one 28 px row. Four-column list begins below. Sources fills the sidebar. | Real modified display, numeric cell count, persistent row menu; long titles truncate without page overflow. |
+| **900 x 600**, Sources at default 248 px: center about 652 px; at 340 px: about 560 px; at 210 px: about 690 px. | Two-line resource rows at center widths at most 700 px. Keep New Notebook beside title until zoom requires wrap. Search and sort remain adjacent; search shrinks first. Focus order: create, search, sort, list. | Title and menu first; real modified display and N cells beneath. Metadata may wrap. Header reduces to Name with screen-reader Actions. |
 
-At narrow center widths, use `minmax(0, 1fr)` plus a 28 px action track, `--space-2` gap, and `--space-panel` horizontal inset. Give the title first claim on width. The two-line row can grow beyond 52 px; never use a fixed height that clips text or the menu. The menu popup remains portalled and viewport-aware. The list frame must not create page-wide horizontal scrolling; very long unbroken names truncate visually but keep their full accessible text. Search may grow to full width, and the sort label/select remain visible rather than becoming icon-only. At zoom or localization lengths that make the heading row too tight, wrap New Notebook onto its own line. **[Presentation-only]**
+At narrow center widths, use minmax(0, 1fr) plus a 28 px action track, 8 px gap and 16 px inset. Give title first claim on width. The two-line row may grow beyond 52 px. Menus stay viewport-aware. Long names truncate visually but retain accessible text. Search shrinks before the 120 px sort Select; both stay visible on one row at target sizes. At greater zoom or longer translations, controls may wrap in DOM order. **[Presentation-only]**
 
 The Home scroll area takes the remaining height beneath the global toolbar. At 900 × 600, the heading/control stack should stay compact enough to expose the start of the list without scrolling when rows exist; the list itself may continue below the viewport through the existing workspace scroll. This is an implementation acceptance check, not a rendered claim.
 
@@ -95,9 +97,9 @@ No missing shared primitive is required. Keep the installed Base UI implementati
 | Home element | Component, variant / size, and composition | Change class |
 | --- | --- | --- |
 | Project eyebrow, heading, description | Semantic text in Notebook-owned heading layout; existing type/color tokens, no new component | Presentation-only |
-| New Notebook | `Button` primary / default, Plus icon | Presentation-only |
-| Search | `Input` default in labeled search container; Search icon and enclosing focus treatment | Presentation-only |
-| Sort | `Select` default, native options, visible label | Presentation-only |
+| New Notebook | Shared Button primary / small, Plus icon | Presentation-only |
+| Search | Shared Input in a labeled 28 px search container; Search icon and focus treatment | Presentation-only |
+| Sort | Shared native Select, 28 px high and 120 px wide, with screen-reader-only label | Presentation-only |
 | Resource list/header/open area | Notebook-owned semantic grid and native open button; shared token states; shared `Table` deliberately not used | Presentation-only; interaction refinement for click boundary |
 | Row menu | `DropdownMenu` family with shared `Button variant="icon"` trigger (28 px by variant) and shared `Tooltip` if composition permits; destructive item | Presentation-only; interaction refinement for trigger verification |
 | Inline rename | `Input` default; `Button` secondary / small Save and ghost / small Cancel | Presentation-only |
@@ -111,22 +113,14 @@ Use `--font-family-ui` throughout. Project eyebrow and list labels use meta 10 p
 
 Home background is `--color-surface`; list frame is the existing neutral sidebar/secondary surface with one 1 px border and `--radius-large` outer corners. Header is `--color-surface` with a bottom border. Rows have a 1 px divider, no shadow, and token hover/selected context only. Shared fields, menu, Tooltip and Dialog own their own surfaces and focus styles. Use 32/24/16/12/8/4 px roles from the existing spacing tokens, 36 px normal controls, 28 px icon/small controls, and 16 px list/control icons. Do not introduce a new global token, radius, or color. **[Presentation-only]**
 
-## 9. Current implementation gaps
+## 9. Current implementation status
 
-1. `Notebook.tsx` already has real search, sort, creation, inline rename, confirmed deletion, and distinct list statuses. Its empty-project branch duplicates the primary creation action. The current heading also spends space on a 38 px decorative icon. **[Presentation-only]**
-2. `styles.css` uses four narrow columns down to a 560 px center track. That reserves only 95 px for a full local date and 30 px for a cell count, and it reduces row padding/spacing instead of changing the information layout. The existing container breakpoint is correctly tied to the center track; change its row composition. The separate `@media(max-width:850px)` still reduces the page title to an undocumented 25 px, which the later container rule does not restore. **[Presentation-only]**
-3. The row menu trigger has local `notebook-menu-trigger`/`notebook-cell-menu` styling. A shared Button visual can replace the ordinary control skin after its Base UI trigger composition is checked. **[Interaction refinement]**
-4. The open button currently uses body 12 px title text; this gives the notebook name too little priority against a 30 px page heading and a table-like header. Use the existing 13 px component role. **[Presentation-only]**
-5. The loaded-row error is rendered above the entire Notebook workspace. Position it with the Home heading and controls so recovery context stays attached to this list; keep the current error state and rows. The same error field can also receive a failed execution-history read, so retain the actual error message rather than relabeling every alert as a notebook-list failure. **[Presentation-only]**
-6. No persistent Home selection exists. Adding multi-select, bulk actions, folders, richer metadata, or a new date-format preference would require changes to existing behavior or data contracts and is outside this design. **[Requires changes to existing behavior — explicitly deferred]**
+The Home source now uses the approved heading/list composition, compact adjacent controls, four-column wide rows and two-line narrow rows. Creation, opening, title search, sorting, inline rename, confirmed deletion, initial loading, error/retry, empty project, no-match and later-error states retain their existing behavior. The row menu uses the shared icon Button and Dropdown Menu. The shared shell collapses Threads when entering Notebook and lets Sources fill the sidebar; returning to Chat restores Threads. No backend, schema, token or shared-component variant changed.
 
-## 10. Small implementation tasks, in priority order
+The earlier gaps concerning the decorative heading icon, duplicate empty-state create action, narrow four-column squeeze, local row-menu trigger, title hierarchy and later-error placement were addressed in the Home implementation. Persistent selection, bulk actions, folders, richer metadata and date preferences remain outside scope because they require new behavior or contracts.
 
-1. **Responsive list composition — presentation-only.** Convert the ≤700 px central-container rows to title + second-line modified/cell metadata + persistent action track. Align header variants and test long names and dates at sidebar widths 210, 248, and 340 px.
-2. **Heading and controls — presentation-only.** Remove the decorative heading icon, apply documented type/spacing roles, keep one primary New Notebook action, and ensure search/sort wrap in DOM order.
-3. **Row hierarchy and focus — presentation-only; interaction refinement.** Give title the component role, align the four wide columns, define hover/focus/menu-open context, and keep title/menu hit areas separate.
-4. **Shared management controls — presentation-only; interaction refinement.** Compose the row menu trigger with shared Button styling; verify pointer and keyboard opening, focus return, popup placement, and no accidental row open. Lay out rename at both widths; retain current draft/error and delete-confirmation paths.
-5. **Truthful state polish — presentation-only.** Place loading, initial error/retry, project-empty, search-empty and later refresh feedback in the specified hierarchy. Keep rows on refresh failure and remove the duplicate empty-state CTA.
-6. **Rendered acceptance review — verification, no behavior change.** Inspect actual Home at 1440 × 900 and 900 × 600 with Sources open/closed and resizable, including long titles, many rows, empty/search-empty, delayed/failing load, retry, rename, and delete. Check focus, tooltip/menu placement, zoom, and no horizontal overflow. No rendered claim is made by this document.
+## 10. Remaining acceptance work
 
-No implementation task here requires a backend, schema, project-shell, global-token, or Editor change. The only changes to existing behavior mentioned above are expressly deferred.
+1. Inspect the native Windows WebView2 Home at 1440 x 900 and 900 x 600 with Sources at 210, 248 and 340 px and collapsed. Verify the sidebar transition, reduced-motion behavior and keyboard focus.
+2. Exercise real project data for long titles, many rows, delayed/failed initial load, retry, rename, delete confirmation, search-empty and later refresh errors. Check menu focus return, zoom and horizontal overflow.
+3. Keep the browser fixture explicitly labeled synthetic. Its current 900 x 600 and 1440 x 900 checks support layout review but do not clear native or persistence acceptance.
