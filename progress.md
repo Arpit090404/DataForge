@@ -3,6 +3,22 @@
 **Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook Home browser preview (2026-11-20)
+
+Opened the actual `NotebookWorkspace` Home in a Vite browser preview using a disposable in-memory project fixture. Inspected rendered screenshots at 1440 × 900 and 900 × 600 with the Sources sidebar shown. The narrow view keeps search, sorting, notebook titles, metadata and row menus visible in a two-line list, and a browser geometry check found no page-level horizontal overflow at 900 × 600. Preview entry files are `apps/desktop/preview-notebook-home.html` and `apps/desktop/preview-notebook-home.tsx`; they do not use the native Tauri backend or persist notebook changes. Native WebView2 and the full application shell remain unverified.
+
+## Notebook Home redesign implementation (2026-11-20)
+
+The Notebook Home source now follows the approved resource-browser composition: project eyebrow and heading lead one primary New Notebook action; shared search/sort controls precede a compact flat grid; names, actual modified times and cell counts align in four columns on wide center tracks and become a title/action line plus metadata line at center widths at most 700 px. The row menu now presents a shared icon Button through the existing Base UI-backed `DropdownMenuTrigger`. Inline rename uses shared Input and Buttons; the shared confirmation remains. The decorative heading icon, duplicate empty-state create action and headers above empty/search-empty states were removed. Initial loading, failure/retry and later errors keep their distinct meanings. Existing Notebook data, persistence, keyboard, and navigation handlers were retained; Editor and cells were not redesigned.
+
+**Focused checks:** In `apps/desktop`, `.\node_modules\.bin\tsc.cmd --noEmit`, `node tests/notebook-home.cjs`, `node tests/notebook-keys.cjs`, `node tests/design-system.cjs`, and `node tests/form-controls.cjs` passed. Impeccable `detect --json --changed` returned `[]`. Source review confirmed the existing create/open, rename/delete, search/sort, load/retry and dirty-protection handlers remained in place. The T3 browser preview reported unavailable and the fallback computer browser host reported no accessible browsers, so rendered Home layout, live menu focus/propagation and native Windows WebView2 interactions were **not** verified. The task's source implementation is complete; those visual/interaction checks remain for the next available UI session. No full build or test suite ran.
+
+## Notebook redesign specification complete (2026-11-20)
+
+`spec/NOTEBOOK_REDESIGN_SPEC.md` consolidates the Notebook foundation, reference analysis, visual system, Home, Editor and cell specifications into one implementation contract. It resolves type roles, surfaces, control sizes, header order, hybrid width, cell alignment, Result table/provenance hierarchy, responsive breakpoints and shared-component ownership. The document includes Home/Editor/cell blueprints, preserved behavior, current gaps, an independently reviewable implementation roadmap and complete-redesign acceptance criteria. The **specification phase is complete; implementation is the next stage**. No application source, CSS, shared component, global token, dependency or shell changed in this task.
+
+**Evidence and limits:** Reviewed the six completed Notebook specifications and current progress, and used Impeccable's Operate critique rubric for a source-based consolidation review. Existing source-backed component/behavior maps were sufficient; no audit, build, test suite or rendered/native validation was repeated. The consolidated design has not been implemented or visually verified at either target window size.
+
 ## Notebook cell visual specification (2026-11-20)
 
 `spec/NOTEBOOK_CELL_DESIGN.md` now specifies the shared cell grammar and individual Code, Text/Markdown and analytical Result treatments within the established Editor layout. It defines source-frame and focus hierarchy, Markdown reading roles and supported syntax limits, Result provenance-to-table order, local overflow, truthful replay states, shared shadcn-style component mapping, and small implementation tasks. The hover/focus-only insertion pattern, current shortcuts, saving, per-cell Python/SQL metadata, and pinned-representation replay semantics remain binding. This is design guidance only; no application source, CSS, shared component, global token, shell or Notebook Home change was made.
