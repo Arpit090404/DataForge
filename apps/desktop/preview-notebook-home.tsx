@@ -6,9 +6,14 @@ import './src/tailwind.css';
 import './src/styles.css';
 
 let notebooks = [
-  { id: 'one', title: 'Regional sales investigation', updated_at: '2026-11-18T12:30:00Z', block_count: 8 },
+  { id: 'one', title: 'Regional sales investigation', updated_at: '2026-11-18T12:30:00Z', block_count: 10 },
   { id: 'two', title: 'Revenue quality checks', updated_at: '2026-11-17T09:15:00Z', block_count: 5 },
   { id: 'three', title: 'Customer cohorts', updated_at: '2026-11-14T14:45:00Z', block_count: 3 },
+];
+const previewBlocks = [
+  { id: 'text-one', notebook_id: 'one', position: 0, kind: 'markdown', content: '# Regional sales\nCompare the registered sales source across regions before interpreting any saved result.', language: null, execution_id: null, created_at: '2026-11-18T12:30:00Z', updated_at: '2026-11-18T12:30:00Z' },
+  { id: 'code-one', notebook_id: 'one', position: 1, kind: 'code', content: 'SELECT region, SUM(revenue) AS revenue\nFROM sales\nGROUP BY region', language: 'sql', execution_id: null, created_at: '2026-11-18T12:30:00Z', updated_at: '2026-11-18T12:30:00Z' },
+  ...Array.from({ length: 8 }, (_, index) => ({ id: `text-${index + 2}`, notebook_id: 'one', position: index + 2, kind: 'markdown', content: `## Investigation note ${index + 1}\nRecord the question, method, and interpretation beside the relevant evidence.`, language: null, execution_id: null, created_at: '2026-11-18T12:30:00Z', updated_at: '2026-11-18T12:30:00Z' })),
 ];
 
 (window as any).__TAURI_INTERNALS__ = {
@@ -22,11 +27,12 @@ let notebooks = [
     }
     if (command === 'get_notebook') {
       const note = notebooks.find(item => item.id === args.id);
-      return note && { ...note, created_at: note.updated_at, blocks: [] };
+      return note && { ...note, created_at: note.updated_at, blocks: note.id === 'one' ? previewBlocks : [] };
     }
     if (command === 'rename_notebook') {
       notebooks = notebooks.map(item => item.id === args.id ? { ...item, title: args.title, updated_at: new Date().toISOString() } : item);
-      return notebooks.find(item => item.id === args.id);
+      const note = notebooks.find(item => item.id === args.id);
+      return note && { ...note, created_at: note.updated_at, blocks: note.id === 'one' ? previewBlocks : [] };
     }
     if (command === 'delete_notebook') { notebooks = notebooks.filter(item => item.id !== args.id); return; }
     throw new Error(`Preview does not support ${command}`);
@@ -42,7 +48,7 @@ function Preview() {
       <div className="threads-section" aria-hidden={notebookMode} inert={notebookMode}><div className="section-heading"><span>THREADS</span><button className="section-actions" disabled aria-label="Threads are not available yet"><Plus size={16}/></button></div><div className="section-empty"><MessageSquare size={16}/><span>No threads yet</span><small>Agent investigations are coming later.</small></div></div>
       <div className="sources-section"><div className="section-heading"><span>SOURCES</span><div className="section-actions"><button disabled aria-label="Refresh source status"><RefreshCw size={14}/></button><button disabled aria-label="Register CSV source"><Plus size={16}/></button></div></div><div className="source-list"><button className="source-item" onClick={() => {}}><FileSpreadsheet size={16}/><span className="source-copy"><span className="source-name">sales.csv</span><span className="source-meta">CSV · 42 KB</span></span><span className="status-dot" aria-hidden="true" /></button></div><div className="sources-footer"><button className="add-source" disabled><FilePlus2 size={16}/> Add CSV source</button></div></div>
       <div className="sidebar-footer"><span className="local-dot"/> Local workspace <span className="version">v0.1</span></div>
-    </aside><main className="main-workspace"><div className="workspace-content">{notebookMode ? <NotebookWorkspace active projectName="Preview project" sources={[]} onDirtyChange={() => {}} /> : <div className="mode-empty"><Database size={28}/><h1>Select a source to continue.</h1></div>}</div></main></div>
+    </aside><main className="main-workspace"><div className="workspace-content">{notebookMode ? <div className="notebook-surface"><NotebookWorkspace active projectName="Preview project" sources={[]} onDirtyChange={() => {}} /></div> : <div className="mode-empty"><Database size={28}/><h1>Select a source to continue.</h1></div>}</div></main></div>
   </div>;
 }
 
