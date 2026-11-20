@@ -3,6 +3,12 @@
 **Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook cell visual specification (2026-11-20)
+
+`spec/NOTEBOOK_CELL_DESIGN.md` now specifies the shared cell grammar and individual Code, Text/Markdown and analytical Result treatments within the established Editor layout. It defines source-frame and focus hierarchy, Markdown reading roles and supported syntax limits, Result provenance-to-table order, local overflow, truthful replay states, shared shadcn-style component mapping, and small implementation tasks. The hover/focus-only insertion pattern, current shortcuts, saving, per-cell Python/SQL metadata, and pinned-representation replay semantics remain binding. This is design guidance only; no application source, CSS, shared component, global token, shell or Notebook Home change was made.
+
+**Evidence and limits:** Reviewed the latest Editor layout, relevant Notebook visual/reference decisions, current `Notebook.tsx`/`Markdown.tsx` and cell/Table CSS/components, and the existing Impeccable typography and polish guidance. The current Markdown renderer flattens indented list items; true nested lists would require separate behavioral work and are not claimed here. No repeated audit, running-app inspection, build or test suite was performed. Cell appearance remains unrendered and unimplemented.
+
 ## Notebook Editor layout specification (2026-11-20)
 
 `spec/NOTEBOOK_EDITOR_LAYOUT.md` defines the Editor's identity-first sticky header, compact existing commands, hybrid document width (readable Markdown measure with full-width Code/Result cells), continuous cell sequence, hover/focus-only insertion boundaries, and a two-row header for narrow central tracks. It maps the current shared shadcn-style controls, preserves save/navigation/shortcut and Result replay semantics, and lists small implementation tasks and rendered acceptance checks. This is a design specification only; no application source, CSS, shared component, global design token, shell, Notebook Home, or cell-internal design changed.
