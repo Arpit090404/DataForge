@@ -3,11 +3,17 @@
 **Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook Editor layout specification (2026-11-20)
+
+`spec/NOTEBOOK_EDITOR_LAYOUT.md` defines the Editor's identity-first sticky header, compact existing commands, hybrid document width (readable Markdown measure with full-width Code/Result cells), continuous cell sequence, hover/focus-only insertion boundaries, and a two-row header for narrow central tracks. It maps the current shared shadcn-style controls, preserves save/navigation/shortcut and Result replay semantics, and lists small implementation tasks and rendered acceptance checks. This is a design specification only; no application source, CSS, shared component, global design token, shell, Notebook Home, or cell-internal design changed.
+
+**Evidence and limits:** Reviewed the latest Notebook progress, visual-system and reference decisions, relevant Editor source/CSS, shared control contracts, and ADR 0010. The Impeccable Operate, layout, and typography guidance informed the document's hierarchy and width decisions; no new audit or running-app inspection was performed. No build or test suite was run. The Editor layout remains unrendered and unimplemented.
+
 ## Notebook Home visual specification (2026-11-20)
 
-`spec/NOTEBOOK_HOME_REDESIGN.md` now specifies the Notebook Home project resource browser: one heading action, shared search/sort/management controls, a compact four-column list that becomes a two-line row when the central workspace is narrow, and distinct truthful loading, empty, search-empty, error, and retry states. It records the source-backed component mapping, exact 1440 × 900 and 900 × 600 layout behavior, current gaps, and small implementation tasks. This is design guidance only; no application source, CSS, shared component, global token, shell, or Notebook Editor change was made.
+`spec/NOTEBOOK_HOME_REDESIGN.md` specifies the Notebook Home project resource browser: one heading action, shared search/sort/management controls, a compact four-column list that becomes a two-line row when the central workspace is narrow, and distinct truthful loading, empty, search-empty, error, and retry states. This pass tightened the existing draft against current source: the open target fills only the name column; search and sort occupy separate control lines at the minimum window size; empty states omit column headers; and the existing center-container breakpoint, undocumented 25 px narrow title override, and shared error field are called out precisely. The specification records the component mapping, 1440 × 900 and 900 × 600 layout behavior, current gaps, and prioritized implementation tasks. This is design guidance only; no application source, CSS, shared component, global token, shell, or Notebook Editor change was made.
 
-**Evidence and limits:** Current Home source, styles, shared controls, design contracts, and the latest Notebook progress notes were reviewed. Impeccable layout/type source detection returned `[]`, which does not establish rendered quality. No running Home or native WebView2 screen was inspected; no build or test suite was run for this documentation task.
+**Evidence and limits:** Current Home source, styles, shared controls, design contracts, and the latest Notebook progress notes were reviewed. Impeccable `context --target apps/desktop/src/Notebook.tsx` completed; its layout and type source scans over `Notebook.tsx` and `styles.css` each returned `[]`. These scans do not establish rendered quality. No running Home or native WebView2 screen was inspected; no build or test suite was run for this documentation task.
 
 ## Notebook visual-system specification (2026-11-20)
 
