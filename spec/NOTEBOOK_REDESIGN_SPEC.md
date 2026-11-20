@@ -1,6 +1,6 @@
 # Notebook redesign: implementation specification
 
-**Status:** Final visual specification, reconciled 2026-11-20. Notebook Home and the shared-sidebar mode transition are implemented in source and inspected in a browser preview with synthetic data. Native WebView2 acceptance and the Editor/cell redesign remain ahead. This consolidates `NOTEBOOK_REDESIGN_BASELINE.md`, `NOTEBOOK_REFERENCE_ANALYSIS.md`, `NOTEBOOK_VISUAL_SYSTEM.md`, `NOTEBOOK_HOME_REDESIGN.md`, `NOTEBOOK_EDITOR_LAYOUT.md`, and `NOTEBOOK_CELL_DESIGN.md`.
+**Status:** Final visual specification, reconciled 2026-11-20. Notebook Home, the shared-sidebar transition, Editor canvas, compact breadcrumb, idle saving and label-free cell chrome are implemented in source. Earlier Editor layouts were inspected in synthetic browser previews; the latest icon header, external Code prompt and floating cell actions have not been rendered or checked in native WebView2. Detailed analytical cell content treatments remain ahead. This consolidates `NOTEBOOK_REDESIGN_BASELINE.md`, `NOTEBOOK_REFERENCE_ANALYSIS.md`, `NOTEBOOK_VISUAL_SYSTEM.md`, `NOTEBOOK_HOME_REDESIGN.md`, `NOTEBOOK_EDITOR_LAYOUT.md`, and `NOTEBOOK_CELL_DESIGN.md`.
 
 ## 1. Vision and authority
 
@@ -12,15 +12,15 @@ Notebook is DataForge's project-scoped analytical document workspace. Home is a 
 
 | Topic | Final rule | Reason and source |
 | --- | --- | --- |
-| Type | Use existing UI roles: 30 px page/Markdown H1, 20 px Editor title/Markdown H2, 13 px resource title/Markdown prose/H3, 12 px controls and Code, 11 px supporting/table text, 10 px labels and dense state. Code uses the code family; everything else uses the UI family. | Resolves local 17/22/25 px Editor/Home and 24/19/15 px Markdown headings without new scale. `DESIGN_SYSTEM.md`, visual system and cell spec. |
+| Type | Use existing UI roles: 30 px page/Markdown H1, 20 px Markdown H2, 13 px resource title/Markdown prose/H3, 12 px controls and Code, 11 px breadcrumb title/supporting/table text, 10 px labels and dense state. The editable breadcrumb title is bold. Code uses the code family; everything else uses the UI family. | The compact Editor path follows the latest reference-driven refinement without a new scale. `DESIGN_SYSTEM.md`, visual system and cell spec. |
 | Space and controls | 4 px token steps; 32 px page/canvas margin when center track allows, 16 px at narrow tracks; 24 px between major groups, 16 px between controls/list, 8–12 px within groups. Default controls 36 px, small 28 px; icon Button is 28 px square by its variant. | One rhythm across Home and Editor. `DESIGN_SYSTEM.md`; shared `Button` implementation. |
-| Surfaces | `--color-surface` is the central Notebook canvas and sticky Editor header. Home list has one `--color-sidebar` frame with a `--color-border` edge; rows have no individual cards. Hover uses `--color-surface-secondary`, selection uses `--color-selected`, Code source may use `--color-code-surface` after rendered check. Only menus/popovers/dialogs float. | Resolves the Editor source's current sidebar background against the visual-system target, while retaining one restrained list frame. |
-| Editor header | One sticky header row when the **center track** is above 900 px; two rows at or below 900 px. DOM order is Back, title/status, + Cell, Save, Shortcuts, No runtime. | Resolves the earlier wide ASCII sketch, which visually wrapped a one-row header. `NOTEBOOK_EDITOR_LAYOUT.md`. |
+| Surfaces | `--color-surface` is the central Notebook canvas and sticky Editor header. Home list has one `--color-sidebar` frame with a `--color-border` edge; rows have no individual cards. Selected cells use a neutral 1 px border without a fill. Code source may use `--color-code-surface` after rendered check. Only menus/popovers/dialogs float. | Keeps selection legible without recoloring the whole cell. |
+| Editor header | One sticky header row when the **center track** is above 900 px; two rows at or below 900 px. DOM order is Notebooks Back, slash, compact bold editable title, icon-only Shortcuts, Save status icon, No runtime. No visible + Cell or Save control. | The Save icon is live status, not an action; idle saving replaces the visible Save action. `NOTEBOOK_EDITOR_LAYOUT.md`. |
 | Content width | One centered cell track, maximum 1120 px after side margins. Rendered Markdown prose is left-aligned within it at about 720 px; Code and Result may use the broad track. | Hybrid width protects reading while retaining analytical room. Editor and cell specs. |
-| Cell sequence | Flat cells with one left selection edge, common label/action strip, 26 px boundary insertion band, no per-cell shadow/card. Code/Text insertion appears on boundary hover or keyboard focus only. | Preserves the reverted always-visible insertion decision. Editor and cell specs. |
+| Cell sequence | Flat cells with accessible type/position names but no visible Cell/Text/Code number strip. A floating action group appears on hover, selection, focus or while real feedback is present. Code selection border follows its source/output frame, with `[ ]` in the left gutter. Shared rectangular + Code/+ Text Buttons straddle the 12 px boundary on hover or keyboard focus only. | Follows the supplied Colab reference without adding execution or Markdown tools. Editor and cell specs. |
 | Tables | Use the existing shared native Table family within the Result's bounded `.table-scroll` (maximum 360 px high), with sticky headers, local horizontal overflow and real row-scope text. | No parallel table system or new Scroll Area. Cell spec and design system. |
 | Metadata | Home shows actual title, local `updated_at` and `block_count` only. Result leads with real operation/source, then input summary, then recorded count/time; exact IDs and parameters stay in native details. | Matches available summaries and provenance; does not invent activity. Home and cell specs. |
-| Menus | Home row actions now use the shared icon Button composed with the shared Dropdown Menu trigger. Editor Menu/Popover triggers still need the planned composition and focus verification. A named trigger is required; Tooltip is optional if composition is sound. | Existing shared wrappers own standard control appearance. No new variant or raw Base UI import. |
+| Menus | Home row actions use the shared icon Button composed with the shared Dropdown Menu trigger. Editor keeps the shared Shortcuts Popover; cell menus retain their current actions. A named trigger is required. | Existing shared wrappers own standard control appearance. No new variant or raw Base UI import. |
 
 ## 2. Home: final blueprint
 
@@ -61,45 +61,29 @@ These are visual placements of existing state branches, not new host states. **F
 
 ## 3. Editor: final blueprint
 
-One sticky Editor header sits above one vertically scrolling document. The global toolbar already conveys project location; Editor shows Back to Notebooks instead of a second breadcrumb. Do not reserve an inspector, composer or second notebook toolbar.
+One sticky Editor header sits above one vertically scrolling analytical document. The global toolbar retains project context; the Editor uses a compact breadcrumb path with an editable notebook name. No inspector, composer, second toolbar, execution controls or Markdown tools are added.
 
-```text
-Wide center track (>900 px): one header row
-[← Notebooks] [Notebook title____________________] [Saved/Unsaved/Saving]
-                                                  [+ Cell ▾] [Save] [Shortcuts] No runtime
-──────────────────────────────────────────────────────────────────────────────
-centered document track (≤1120 px)
-  insertion boundary
-  Text / Code / Result cell
-  insertion boundary ...
-  saved-execution picker after final boundary (when real executions exist)
+Wide center track (>900 px): [Notebooks] / [Regional sales review] ... [Keyboard icon] [Save status icon] No runtime, in one physical row.
+Narrow center track (at most 900 px): row one [Notebooks] / [Regional sales review]; row two [Keyboard icon] [Save status icon] No runtime.
+Below either header: centered document track (maximum 1120 px); hover/focus boundary with [+ Code] [+ Text]; label-free Text / Code / Result content with floating actions; Code `[ ]` outside its bordered source/output frame; saved-execution picker after the final boundary when real executions exist.
 
-Narrow center track (≤900 px): two header rows, same DOM order
-[← Notebooks] [Notebook title____________________]
-               Saved/Unsaved/Saving
-[+ Cell ▾] [Save] [Shortcuts]                 No runtime
-───────────────────────────────────────────────────
-document track with 16 px side margins
-```
+Notebooks is a shared ghost/small Back Button with the existing save-before-return path. The slash is decorative. The labeled shared title Input is bold and explicitly matches the Notebooks Button's 11 px size; it is 28 px high, at most 240 px wide, and internally scrolls for long names. A focus cue encloses it. Icon-only Shortcuts uses a named shared Button and the existing Popover. A Lucide Save icon immediately to its right exposes the live Saved / Unsaved changes / Saving state through hidden text and native title; it is not clickable. The visible + Cell and Save controls remain absent. Changes to title, content or language save after 1200 ms idle, while Ctrl+S, Ctrl+Enter, Shift+Enter and Back save-before-return retain their paths. No runtime remains factual plain text. **Files:** Notebook.tsx Editor header/save effect and Editor header CSS. **Change:** presentation plus existing idle-save behavior.
 
-The drawing's line break in the wide header is for legibility; all its controls occupy **one physical row**. Back is shared Button ghost/small and retains save-before-return. Title is the existing labeled shared Input, 36 px field height with 20 px section typography and a visible enclosing focus cue when borderless; its 120-character draft and persistence behavior remain. Status sits by the title wide and directly below it narrow. The command group keeps + Cell (shared Menu trigger presented as secondary/default Button), Save (secondary/default Button), Shortcuts (shared Popover trigger presented as ghost/small Button), then plain `No runtime` text with its factual native title. The + Cell menu still contains only Code/Text. At narrow widths status and runtime yield space before title or command labels; the second row may wrap at zoom. No new overflow menu or icon-only relabeling is needed for three existing commands. **Files:** `Notebook.tsx` Editor header, `.notebook-editor-toolbar`, `.notebook-title`, `.notebook-toolbar-actions`; shared Button/Input/Menu/Popover. **Change:** presentation-only, with composed-trigger interaction checks.
-
-The canvas uses `--color-surface`, 32 px side margins above 900 px center width or 16 px at/below it, a 1120 px maximum cell track and roughly 720 px Markdown prose measure inside that track. Code and Result may use the full track. Keep source soft wrapping and local table/fenced-code scrolling; the document itself never scrolls horizontally. The header sticks at the top of the existing workspace scroll. Long cell sequences continue under it. The saved-execution picker stays after the last insertion boundary in document flow, with its shared Select/Button and native details; it is not a global command. **Files:** `.notebook-editor`, `.notebook-blocks`, `.notebook-add`, `Notebook.tsx`; shared Select/Button. **Change:** presentation-only.
-
+The canvas uses the central surface, 32 px side margins above 900 px center width or 16 px at/below it, a 1120 px maximum cell track and roughly 720 px Markdown prose measure. Code and Result may use the broad track. The existing workspace scroll is vertical, with the header sticky; source soft-wraps and tables/fenced code scroll locally. The saved-execution picker follows the final insertion boundary in document flow. **Files:** Editor layout CSS and Notebook.tsx. **Change:** presentation-only.
 ## 4. Cell blueprints and causal identity
 
-All cells share a common label/position strip, left selection edge, 12 px internal rhythm, consistent content inset and trailing 28 px actions menu. Use a neutral hover, `--color-selected` selected background, a 2 px focus ring, and a distinct editing-frame focus cue. Actual Unsaved and D-twice prompts remain textual. Keep a stable 26 px boundary between cells; + Code/+ Text appear there **only on hover or keyboard focus**, including first/last boundaries. The selected preview Code/Text Edit Button remains contextual. **Files:** `Notebook.tsx` cell sequence/`InsertionSlot`, `.notebook-block*`; shared ghost/small Edit Button, icon Button/Menu for actions. **Change:** presentation-only; existing shortcuts and insertion behavior preserved.
+Cells no longer show visible type/position labels. Their accessible section names retain type and position; real Unsaved and D-twice prompts remain textual. Actions float at the upper-right edge on hover, selection, focus or while those real warnings are present. A neutral 1 px border identifies selection without filling the cell; Code uses its actual source/output frame for that border, not a larger outer section. The inert `[ ]` prompt sits outside the frame at left. Shared secondary/small + Code/+ Text Buttons straddle the 12 px boundary **only on hover or keyboard focus**. **Files:** `Notebook.tsx` cell sequence/`InsertionSlot`, `.notebook-block*`, `.notebook-code-*`; shared Button for insertion and contextual Edit. **Change:** presentation-only; shortcuts and insertion behavior preserved.
 
 ```text
-Code:   [Code 2] [actual Unsaved]      [Python ▾] [Edit Code if selected] [⋯]
-        [ ]  authored source in restrained code frame (12 px code / 1.6)
-             No output · execution unavailable
+Code:   [ ] | authored source inside its actual bordered frame (12 px code / 1.6)
+             No output · execution unavailable inside the same frame
+             floating [actual Unsaved] [Python ▾] [Edit Code] [⋯] when relevant
 
-Text:   [Text 3] [actual Unsaved]       [Edit Text if selected] [⋯]
+Text:          [actual Unsaved] [Edit Text if selected] [⋯] floating when relevant
         Heading, paragraphs, lists, links and code as document prose
         (edit: shared Textarea in quiet focus frame; preview: no field chrome)
 
-Result: [Result 4]                                            [⋯]
+Result:                                                       [⋯] on hover/focus
         real operation · registered source
         concise saved inputs
         recorded row count · actual execution time
@@ -120,16 +104,16 @@ Result: [Result 4]                                            [⋯]
 
 | Notebook element | Existing shared control / variant and size | Notebook composition or extension |
 | --- | --- | --- |
-| Home New / Editor Save / + Cell | Shared Button primary/small for New; secondary/default for Save and + Cell | + Cell uses shared DropdownMenuTrigger. No new variant. |
+| Home New / boundary insertion | Shared Button primary/small for New; secondary/small for + Code and + Text | Insertion remains a Notebook-specific hover/focus composition. No new variant. |
 | Home search/title/rename | Shared Input default 36 px; Home search context 28 px | Search icon container, borderless title frame and inline rename placement are Notebook-specific. |
 | Home sort / Code language / saved execution | Shared native Select default 36 px; Home sort and Code language contextually compact at 28 px | Preserve native change events and popup. No global compact variant. |
 | Home row and cell menus | Shared `DropdownMenu` Content/Item/Separator; `Button variant="icon"` 28 px for trigger | Custom row/cell target names and menu contents; test `render` composition, focus, propagation. `IconButton`/Tooltip only if trigger composition works. |
-| Back / Shortcuts / Edit / Retry | `Button` ghost/small Back, Shortcuts, Edit; secondary/default Home Retry; secondary/small Result Load/Retry | Shortcuts uses shared `Popover`; visible-text commands need no Tooltip. |
+| Back / Shortcuts / Edit / Retry | `Button` ghost/small Back and Edit; icon variant for Shortcuts; secondary/default Home Retry; secondary/small Result Load/Retry | Shortcuts uses shared `Popover` with accessible icon-only trigger. |
 | Delete | Shared `ConfirmationDialog`, destructive confirm | Keep consequence text and Cancel-first focus. |
 | Code/Text source | Shared native `Textarea` | Code prompt/frame and Markdown edit/preview are domain surfaces, not new form primitives. |
 | Result evidence | Shared native `Table`, Header/Body/Row/Head/Cell/Empty | Bounded local overflow and provenance are Result-specific. |
-| Status/provenance | Text with existing roles; native `<details>` | `Badge` remains for ready/changed/missing sources. No runtime or Result badge. |
-| Canvas/rows/insertion | No generic primitive | Home grid, document cells and `InsertionSlot` are justified Notebook compositions with semantic native actions. |
+| Status/provenance | Lucide Save icon with hidden live text; native `<details>` | Save status is immediately right of Shortcuts and is not a button. `Badge` remains for source states. |
+| Canvas/rows/insertion | Shared Button inside Notebook-owned insertion layout | Home grid, document cells and `InsertionSlot` remain justified Notebook compositions. |
 
 No shared Separator, Scroll Area, Tabs, Skeleton or Context Menu exists or is required. Use CSS token borders for layout separators, `DropdownMenuSeparator` inside menus and native overflow/details for scrolling and disclosure. No Radix, raw Base UI imports in Notebook, new icon library, editor package or global design-system extension.
 
@@ -140,38 +124,38 @@ Breakpoints follow `.main-workspace` **container width**, including sidebar resi
 | Target | Home | Editor and cells |
 | --- | --- | --- |
 | **1440 x 900**: Sources at 248 px -> center about 1192 px; at 340 px -> about 1100 px; closed -> about 1440 px. | 32 px margins and max 1120 px content. Small New Notebook aligns with title; 28 px search and sort sit adjacent; four-column list shows real date, count and menu. Sources fills the shared sidebar. | One sticky Editor header row above 900 px center width; cell track max 1120 px, Markdown measure about 720 px, Code/Result broad. |
-| **900 x 600**: Sources at 248 px -> center about 652 px; at 340 px -> about 560 px; at 210 px -> about 690 px; closed -> about 900 px. | At center widths at most 700 px, 16 px margins. New Notebook stays on title line until zoom requires wrap. Search shrinks beside the 120 px sort Select. Two-line rows show title/menu then real modified time and N cells. | At center widths at most 900 px, two-row sticky Editor header; title/status before commands. Source and prose wrap; fenced code and tables scroll locally. |
+| **900 x 600**: Sources at 248 px -> center about 652 px; at 340 px -> about 560 px; at 210 px -> about 690 px; closed -> about 900 px. | At center widths at most 700 px, 16 px margins. New Notebook stays on title line until zoom requires wrap. Search shrinks beside the 120 px sort Select. Two-line rows show title/menu then real modified time and N cells. | At center widths at most 900 px, two-row sticky Editor header; breadcrumb first, save status and Shortcuts/No runtime second. Source and prose wrap; fenced code and tables scroll locally. |
 
 The shared sidebar transitions Threads out and Sources upward when entering Notebook mode; reduced-motion users get an immediate change. Home empty/search-empty/error states replace the list header; an initial load never claims success. Menus stay viewport-aware. At zoom or longer translations, controls may wrap in DOM order without hiding focus. **Files:** App.tsx sidebar, styles.css mode transition and Home container, Notebook.tsx composition. **Change:** presentation-only for Home; interaction refinement for mode transition.
 
 ## 7. Preserved behavior and product truth
 
 - Creating, opening, renaming and deleting notebooks remain project-scoped. Back saves pending edits before Home; failure keeps the Editor open. Dirty titles, cell drafts and Home rename retain current protection.
-- Existing command/edit shortcuts remain: Up/Down, Enter, A/B, D twice, Escape, Code Tab/Shift+Tab, Ctrl+Enter, Shift+Enter and Ctrl+S. Saving never runs Code. Existing menu insertion/movement and double-click editing remain.
+- Existing command/edit shortcuts remain: Up/Down, Enter, A/B, D twice, Escape, Code Tab/Shift+Tab, Ctrl+Enter, Shift+Enter and Ctrl+S. Title, source and language drafts also save after 1200 ms idle; failure retains the draft and shows an error. Saving never runs Code. Existing menu insertion/movement and double-click editing remain.
 - Python/SQL is per-Code-cell source metadata only. There is no general notebook execution runtime, Run/Run All, fabricated progress, computed Code output or agent result.
 - A Result loads a bounded replay from a pinned representation on demand, can be unavailable, and may show different row order without a saved sort. Recorded count and displayed page count keep different labels. Exact provenance remains inspectable.
 - The global shell, Sources resizing, application toolbar, mode switch and navigation relationships remain as implemented. The design stays useful without an agent.
 
 ## 8. Current implementation gaps
 
-1. Editor local/raw standard trigger and Back styles still compete with shared Button presentation; verify Base UI Menu/Popover trigger composition before removing local skins. Home row-menu trigger composition is implemented.
+1. Home row-menu and Editor Shortcuts use shared trigger composition; Editor Back and boundary insertion now use shared Buttons. Cell-internal menu and control styling remains a separate cell-design task.
 2. Home's decorative icon, duplicate create action, narrow four-column squeeze and misleading state hierarchy have been addressed in source. Native WebView2 and real-data interaction acceptance remain open.
-3. Editor's current `@media(max-width:1050px)` wraps the title after commands with `order:3`; the new center-container rule must keep identity first and preserve a usable title width.
-4. The current cell track reaches 1120 px but Markdown uses nearly all of it; the inner prose measure is missing. Editor canvas currently uses the sidebar surface and Code focus uses a 1 px accent outline.
+3. Editor title order now follows the compact breadcrumb layout. Earlier browser checks covered the previous one/two-row header at target widths and Sources widths 210/248/340 px and closed; the latest breadcrumb, idle save and insertion changes need rendered/native verification.
+4. Editor canvas now uses the central surface, a maximum 1120 px cell track and a 720 px Markdown measure. Code focus still uses a 1 px accent outline; that is part of the later cell-design task.
 5. Code/Result source hierarchy and Result metadata are visually crowded. Result table values have no numeric-type alignment; long values need source-based visual containment without changing replayed data.
 6. Markdown's current 24/19/15 px headings and local 9/18 px margins drift from documented roles. Indented list items remain flat; true nesting is outside this visual implementation.
 7. Native WebView2 visual/interaction acceptance at both target sizes, sidebar states, long content, replay states, menus and focus remains unverified. Prior source detectors returning `[]` do not clear this gap.
 
 ## 9. Small implementation roadmap
 
-All tasks below preserve host commands and schema. Tasks 1 and 2 are implemented for Home, including the later compact-control and shared-sidebar refinements; their native acceptance checks remain open. Editor trigger work under task 1 is still pending. Complete and review each remaining task before the next dependent one, with focused checks and `git diff --check` after each edit.
+All tasks below preserve host commands and schema. Tasks 1–4 are implemented in source, including the later compact Home controls and shared-sidebar transition. Browser fixtures inspected the Home and Editor layouts; native real-project acceptance remains open. Complete and review each remaining task before the next dependent one, with focused checks and `git diff --check` after each edit.
 
 | Order / scope | Files and dependency | Non-goal | Acceptance and focused verification | Stop condition |
 | --- | --- | --- | --- | --- |
-| **1. Shared trigger composition (Home done; Editor pending)**: use shared Button presentation for Menu/Popover triggers. | `components/ui/button.tsx`, `dropdown-menu.tsx`, `popover.tsx` only if a real adapter is required; Editor trigger usage. | No new variant/library or broad control refactor. | Keyboard/pointer open, Escape, focus return, disabled state and event isolation work; inspect shared APIs and run focused TypeScript/checks. | Stop when Editor uses existing shared composition or the smallest required adapter is documented. |
+| **1. Shared trigger composition (source done)**: use shared Button presentation for Home row Menu and Editor Menu/Popover triggers. | `Notebook.tsx`; existing shared components required no extension. | No new variant/library or broad control refactor. | Browser fixture confirmed Editor pointer opening, Escape and focus return; TypeScript and focused controls checks passed. Native interaction remains open. | Stop after native acceptance is recorded. |
 | **2. Home composition (source done; native acceptance pending)**: heading, compact controls, row grid and states. | `Notebook.tsx` Home branch, Home CSS, `App.tsx` shared-sidebar transition; `notebookHome.ts` helpers unchanged. | No Editor/cell or backend change. | Browser fixture checked 900 × 600 and 1440 × 900 layout and mode transition. Complete native real-project checks for long names, sidebar widths, loading/error/retry, rename/delete and focus. | Stop when Home native acceptance evidence is recorded with any remaining defects. |
-| **3. Editor header**: identity-first one/two-row layout and shared Back/+ Cell/Save/Shortcuts styling. | `Notebook.tsx` header, header CSS. Depends on 1. | No cell interiors or shell change. | Title/status priority, actual busy/dirty state, Back save protection, menus/popover focus and minimum-size header fit; focused keyboard/TypeScript plus rendered header check. | Stop when header works at both center-track regimes. |
-| **4. Document canvas**: centered hybrid track, scroll and boundary alignment. | `.notebook-editor`, `.notebook-blocks`, `.notebook-add`, insertion/layout CSS; `Notebook.tsx` only for layout composition. Depends on 3. | No Code/Markdown/Result internal restyle. | One vertical document scroll, broad analytical track, first/last hover/focus insertion and saved-execution placement; inspect many cells and sidebar extremes. | Stop when document geometry holds before cell polishing. |
+| **3. Editor header (source done; latest refinement unrendered)**: compact breadcrumb, live status, Shortcuts/No runtime and idle save. | `Notebook.tsx` header/save effect and header CSS. | No cell interiors, Markdown tools or shell change. | Focused TypeScript and keyboard checks pass; verify idle persistence/failure and header at both widths in a running app. | Stop after rendered/native acceptance is recorded. |
+| **4. Document canvas (source done; boundary refinement unrendered)**: centered hybrid track, scroll, neutral selection border and 12 px insertion gap with overlapping shared Buttons. | `.notebook-editor`, `.notebook-blocks`, `.notebook-insertion`, `.notebook-add`, Markdown width CSS. | No Code/Markdown/Result internal restyle. | Earlier browser fixture confirmed scroll and width; verify the latest boundary hover/focus hit area and selection in a running app. | Stop after rendered/native acceptance is recorded. |
 | **5. Code presentation**: prompt/source geometry, code surface, focus and truthful footer. | Code branch in `Notebook.tsx`, `.notebook-code-*`; depends on 4. | No execution, parser or editor dependency. | Preview/edit align, 12 px code type, long lines contained, 2 px focus cue, Python/SQL metadata and save shortcuts intact; focused `node tests/notebook-keys.cjs`, TypeScript and Code visual/focus check. | Stop when Code is distinct and inert. |
 | **6. Markdown presentation**: prose measure, heading/list/code/link rhythm and Text editor focus. | Markdown/Text CSS; `Markdown.tsx` only if styling hooks are strictly needed. Depends on 4. | No nested-list parser or unsupported syntax. | H1–H6 roles, readable prose, safe links, local fenced scroll and preview/edit paths; focused `node tests/markdown.cjs`, TypeScript and long-document visual check. | Stop when supported syntax reads as document content. |
 | **7. Result evidence**: provenance hierarchy, shared table density/alignment and states. | `ResultBlock` in `Notebook.tsx`, Result CSS; reuse `notebookProvenance.ts` and shared Table without changing their contracts. Depends on 4; may follow 5/6 for integrated rhythm. | No new query, snapshot, pagination or table library. | Real operation/source/count/time, exact details, before-load/replay/failure/zero-row states, numeric alignment and local wide-table scroll; focused `node tests/notebook-provenance.cjs`, TypeScript and Result visual review. | Stop when table is dominant and replay truth survives. |
@@ -195,7 +179,7 @@ All tasks below preserve host commands and schema. Tasks 1 and 2 are implemented
 | Consistency | One 4 px spacing scale, documented type roles, shared controls, neutral surfaces and common cell strip cover both screens. Check actual CSS cascade and focus treatments when implemented. |
 | Density | Compact Home rows and continuous cells fit an Operate workspace; long metadata moves to a second line or details instead of taking width from the analytical content. Check first-cell visibility at 900 × 600. |
 | Typography | Existing UI/code families and 30/20/13/12/11/10 px roles provide the hierarchy; ~720 px Markdown measure limits prose length. Check fallback font, zoom and long titles in WebView2. |
-| Component composition | Existing shadcn-style Button/Input/Select/Menu/Popover/Dialog/Table cover standard controls. Only analytical canvas, source frame, renderer and Result composition stay custom. Verify Base UI trigger composition before removing local styles. |
+| Component composition | Existing shadcn-style Button/Input/Select/Menu/Popover/Dialog/Table cover standard controls. Only analytical canvas, source frame, renderer and Result composition stay custom. Editor trigger composition was checked in the browser fixture; cell-internal controls remain for later review. |
 | Analytical workflow clarity | Code is authored source with unavailable execution; Result is a separately identified replay of a saved operation with exact provenance. Confirm no adjacent Code/Result pairing appears causal in the rendered sequence. |
 
-The main unresolved risk is visual: at 900 × 600, the future two-row Editor header and dense Result metadata may compete with the first cell. Adjust within established tokens after a rendered pass. The original consolidated critique was source-based. A later browser fixture inspected Home at both target viewports and the sidebar transition, but it did not verify native WebView2, actual project persistence, Editor or cells.
+At 900 × 600 the implemented two-row Editor header leaves the first cell visible in the browser fixture; dense Result metadata still needs its separate cell-design pass. Home and Editor browser fixtures use synthetic data and do not establish native WebView2 behavior, actual project persistence or Result replay. The original consolidated critique was source-based.

@@ -1,37 +1,37 @@
 # Notebook cell visual design
 
-**Status:** Cell implementation specification, 2026-11-20. Cell internals remain unimplemented by this design task; the later Home control and shared-sidebar refinement does not alter their blueprint. The Editor track and header are specified in `spec/NOTEBOOK_EDITOR_LAYOUT.md`; this document specifies the three cell interiors. At either target width, calculate cell room from the same resizable Chat/Notebook sidebar after Threads collapses and Sources fills it. `spec/DESIGN_SYSTEM.md` and `spec/NOTEBOOK_VISUAL_SYSTEM.md` remain the token and component contracts.
+**Status:** Cell implementation specification, updated 2026-11-20. Shared label-free cell chrome, compact insertion, border-only selection and an external Code prompt are implemented in source. Detailed Code, Markdown and Result content treatments remain future work. The latest changes have not been rendered or checked in native WebView2. `spec/DESIGN_SYSTEM.md` and `spec/NOTEBOOK_VISUAL_SYSTEM.md` remain the token and component contracts.
 
 ## 1. Shared cell grammar
 
-Use one continuous analytical document. Every cell occupies the Editor's centered track, with the same left selection edge, label strip, content inset, trailing action position, and hover/focus insertion boundary. The strip identifies **Text**, **Code**, or **Result** plus its actual position. Cell type is conveyed by label and content, not a large icon or colored card. One quiet token divider or the existing 26 px insertion band separates neighbors. No cell shadow; only Code source and the Result table receive an inner working surface. **Visual change:** align the three interiors to one grid and remove competing frame weight. **Affected:** `Notebook.tsx` `.notebook-block`, `.notebook-block-toolbar`, `InsertionSlot`; `styles.css`. **Shared controls:** `Button`, `DropdownMenu`, `Select`, `Table` where used below. **Class:** presentation-only.
+Use one continuous analytical document. Every cell occupies the Editor's centered track with a compact hover/focus insertion boundary. Visible type/position labels such as Text 1 and Code 2 are removed; the section's accessible name still identifies type and position. A floating upper-right action group appears on hover, selection, keyboard focus or while real Unsaved/delete feedback is present. A 12 px insertion band separates neighbors, while 28 px insertion Buttons straddle both borders. Only the actual Code source/output frame takes the visible Code border; its inert prompt sits in the left gutter. **Affected:** `Notebook.tsx` `.notebook-block`, `.notebook-block-toolbar`, `InsertionSlot`; `styles.css`. **Shared controls:** `Button`, `DropdownMenu`, `Select`, `Table` where used below. **Class:** presentation-only.
 
-The shared strip order is label/position and any actual Unsaved or D-twice feedback at left; contextual control(s) at right; a named 28 px actions trigger last. Keep the current menu order and actions: Edit/Preview when applicable, insertion above/below, movement, and Delete with confirmation. Present the trigger through the shared icon `Button` composed with the shared `DropdownMenuTrigger`; its `aria-label` continues to name the cell. The shared menu supplies items and separators. Verify trigger composition, focus return, popup placement, and that pressing it does not activate a cell action. **Affected:** `.notebook-cell-menu`, `.notebook-block-toolbar`; shared `Button variant="icon"`, `DropdownMenu`, `DropdownMenuSeparator`, `ConfirmationDialog`. **Class:** presentation-only with an interaction refinement check; no action change.
+The floating action group places actual Unsaved or D-twice feedback before contextual controls, then the named actions trigger. Keep the current menu order and actions: Edit/Preview when applicable, insertion above/below, movement, and Delete with confirmation. The cell menu's shared-icon-Button composition remains a later visual task; its accessible cell-specific name remains. Verify focus return, popup placement and event isolation. **Affected:** `.notebook-cell-menu`, `.notebook-block-toolbar`; shared `DropdownMenu`, `DropdownMenuSeparator`, `ConfirmationDialog`. **Class:** presentation-only with an interaction refinement check; no action change.
 
 ```text
 Insertion boundary (line and + Code / + Text reveal on hover or keyboard focus)
-| Cell selection edge | [TYPE  3] [actual state]       [context control] [⋯] |
-|                     | content, aligned to the common left inset       |
+| content / Code frame |                [actual state] [context control] [⋯] |
+| Code prompt [ ]     | content inside its own frame                    |
 Insertion boundary
 ```
 
-The insertion controls stay **hidden at rest** and visible on boundary hover or keyboard focus, including before the first and after the last cell. Selecting a cell alone does not reveal them. The existing contextual Edit control for a selected preview Code or Text cell remains visible. Keep keyboard selection, editing, movement, save, draft, and deletion behavior unchanged. **Affected:** `InsertionSlot`, selected-cell header and styles. **Shared controls:** selected Edit uses `Button ghost / small`; insertion is the existing Notebook-specific composition. **Class:** presentation-only.
+The insertion controls stay **hidden at rest** and visible on boundary hover or keyboard focus, including before the first and after the last cell. Selecting a cell alone does not reveal them. + Code and + Text use the existing shared `Button secondary / small` rectangular shape within the Notebook-specific insertion layout. The contextual Edit control for a selected preview Code or Text cell remains visible. Keep keyboard selection, editing, movement, save, draft, and deletion behavior unchanged. **Affected:** `InsertionSlot`, selected-cell header and styles. **Class:** presentation-only.
 
 ## 2. Code cell
 
 ### Layout blueprint
 
 ```text
-| Code  2   [Unsaved if changed]        [Python ▾] [Edit Code if selected] [⋯] |
-| [ ]  source text in the code surface, soft wrapped at available cell width |
-|      No output · execution unavailable (quiet source footer)               |
+| [ ] | source text in the bordered code surface                         |
+|     | No output · execution unavailable (quiet source footer)            |
+|     | floating [Unsaved] [Python ▾] [Edit Code if selected] [⋯] on state |
 ```
 
-The strip identifies Code; the existing native shared `Select` holds the cell's stored Python/SQL language, near the right actions. It is a per-cell metadata control, not a notebook language or runtime selector. Keep its existing compact 28 px contextual treatment and accessible cell-specific name. Do not add a Run icon, execution number, kernel indicator, or syntax-highlighting dependency. **Visual change:** consistent strip alignment and quieter metadata selector. **Affected:** `Notebook.tsx` Code branch, `.notebook-block-toolbar select.ui-select`; shared `Select` with existing compact Notebook CSS. **Class:** presentation-only.
+The section remains named Code for assistive technology; the visible type/number strip is gone. The existing native shared `Select` holds stored Python/SQL language in the floating action group. It is per-cell metadata, not a notebook runtime selector. Keep its compact 28 px treatment and accessible cell-specific name. Do not add a Run icon, execution number, kernel indicator, or syntax-highlighting dependency. **Affected:** `Notebook.tsx` Code branch, `.notebook-block-toolbar select.ui-select`; shared `Select`. **Class:** presentation-only.
 
-The source frame is a technical inset inside the flat cell, using the existing `--color-code-surface` role if rendered comparison confirms separation from the surrounding canvas, `--color-border`, and `--radius-default`. The prompt stays `[ ]`, small, nonnumeric and explicitly non-executing. Preview and editing use the same horizontal prompt/source alignment so the cell does not jump when Edit is chosen. Source uses `--font-family-code`, `--font-size-code` (12 px), line height 1.6, and the existing two-space Tab behavior. Keep soft wrapping of long source lines and local vertical overflow of a long editor; never widen the document. The shared `Textarea` keeps selection/cursor APIs, draft persistence, spellcheck-off for Code, and no resize handle. **Visual change:** one deliberate code frame and steady preview/edit geometry. **Affected:** `.notebook-code-frame`, `.notebook-code-preview`, `.notebook-code-source`, `.notebook-code-editor`; shared `Textarea`. **Class:** presentation-only.
+The bordered source/output frame now spans the Code cell's actual visible working area, with no larger selected outer border. The prompt stays `[ ]`, small, nonnumeric and explicitly non-executing, positioned outside the frame in the left gutter for preview and editing. The existing `--color-code-surface` role may be used after rendered comparison; no new color is introduced. Source uses `--font-family-code`, `--font-size-code` (12 px), line height 1.6, and the existing two-space Tab behavior. Keep soft wrapping of long lines and local vertical overflow of a long editor. The shared `Textarea` retains cursor, draft, spellcheck-off and no-resize behavior. **Affected:** `.notebook-code-frame`, `.notebook-code-preview`, `.notebook-code-source`, `.notebook-code-editor`; shared `Textarea`. **Class:** presentation-only.
 
-On selection, the cell's left edge and neutral background identify command mode. In editing, the source frame takes a visible 2 px `--color-focus-ring` focus treatment when its Textarea has focus; do not leave the inner outline removed with only the current 1 px accent frame. Keep the selected-cell Edit action in preview, and retain double-click and Enter to edit. **Visual change:** distinguish selected from active text editing without a second card border. **Affected:** `.notebook-block.selected`, `.notebook-block.editing`, `.notebook-code-frame:focus-within`; shared `Button ghost / small` for Edit. **Class:** presentation-only; verify focus and editing paths.
+On selection, a neutral 1 px border identifies command mode without recoloring the cell. In editing, the cell border uses the focus-ring color; the later Code-internal task should still give its source frame a visible 2 px `--color-focus-ring` treatment when the Textarea has focus. Keep the selected-cell Edit action in preview, and retain double-click and Enter to edit. **Visual change:** distinguish selected from active text editing without a selected fill. **Affected:** `.notebook-block.selected`, `.notebook-block.editing`, `.notebook-code-frame:focus-within`; shared `Button ghost / small` for Edit. **Class:** presentation-only; verify focus and editing paths.
 
 Treat the existing `No output · execution unavailable` line as a small factual footer **inside Code**, below a fine divider. It is not a Result table, loading placeholder, or output generated by a Run action. Do not visually join a later Result block to this source frame: a Result can come from an unrelated saved operation. **Visual change:** de-emphasize the unavailable-output line while retaining the current text and truth. **Affected:** `.notebook-code-output`; no shared component needed. **Class:** presentation-only.
 
@@ -40,7 +40,7 @@ Treat the existing `No output · execution unavailable` line as a small factual 
 ### Layout blueprint
 
 ```text
-| Text  3   [Unsaved if changed]            [Edit Text if selected] [⋯] |
+| Text content                    [Unsaved if changed] [Edit Text] [⋯] |
 | Heading / paragraphs / lists / links as document content              |
 | inline code or locally scrolling fenced code where authored           |
 
@@ -63,7 +63,7 @@ Editing uses the shared native `Textarea` within a quiet Text frame at the same 
 ### Layout blueprint
 
 ```text
-| Result  4                                         [⋯] |
+| real operation and registered source              [⋯] on hover/focus |
 | Group and summarize   · Registered source: Orders   |
 | Filter … · Group by … · Measures …                    |
 | 20 recorded rows · Nov 20, 2026, 10:30 AM          |
@@ -92,11 +92,11 @@ Below the table, preserve the actual `Showing N rows` scope, `has_more` note, pi
 | Successful rows | Show the shared Table, then actual page-scope text and details. A large original result set still shows only the bounded replay page and truthful `has_more` note. `.table-scroll`. | Presentation-only |
 | Successful zero rows | Keep the table frame/headers and shared `TableEmpty` message `No rows matched this operation.`; metadata and provenance remain. `ResultBlock`, shared `TableEmpty`. | Presentation-only |
 | Replay failure / unavailable pinned representation | Keep identity and exact details; show `Result unavailable: …` with the real error plus shared `Button secondary / small` `Retry result`. Do not erase the reference or present an empty successful result. `ResultBlock` `.notebook-unavailable`. | Presentation-only |
-| Missing execution reference | Keep the existing `Execution reference unavailable.` text inside the Result cell, with its label and actions; no invented source or Retry action. `Notebook.tsx` Result branch. | Presentation-only |
+| Missing execution reference | Keep the existing `Execution reference unavailable.` text inside the Result cell, with its accessible name and actions; no invented source or Retry action. `Notebook.tsx` Result branch. | Presentation-only |
 
 ## 5. State, focus and document continuity
 
-Resting cells are transparent on the document canvas. Hover gives a slight token surface change without moving content. Selected cells use the established quiet left edge and selected neutral surface; keyboard focus receives the documented 2 px ring. Editing cells keep the selected edge but show their actual Textarea's enclosing focus treatment. Dirty text and D-twice deletion warnings remain visible as words, not color alone. The Code/Result distinction stays literal: Code has source plus unavailable-runtime footer; Result has saved-execution provenance plus replayed evidence. **Affected:** `.notebook-block`, `.notebook-block-toolbar`, Code/Text frames, Result header; shared focus styles. **Class:** presentation-only.
+Resting and selected cells keep the same transparent canvas surface. Hover does not move content. Selected cells use the neutral 1 px border; editing changes its border to the focus-ring color, and keyboard focus retains the documented 2 px ring. Dirty text and D-twice deletion warnings remain visible as words, not color alone. The Code/Result distinction stays literal: Code has source plus unavailable-runtime footer; Result has saved-execution provenance plus replayed evidence. **Affected:** `.notebook-block`, `.notebook-block-toolbar`, Code/Text frames, Result header; shared focus styles. **Class:** presentation-only.
 
 At 1440 × 900, the 1120 px cell track gives Code and Result room while Text prose stays near 720 px. At 900 × 600 with Sources open (center roughly 560–690 px), all interiors use the available track minus 16 px side margins; metadata lines wrap before shrinking controls, Code soft-wraps, fenced Markdown and wide Result tables scroll locally, and the cell menu remains reachable. A long sequence scrolls under the Editor's sticky header as specified in `spec/NOTEBOOK_EDITOR_LAYOUT.md`. **Affected:** Notebook cell/layout selectors and existing `@container` rules. **Shared controls:** unchanged. **Class:** presentation-only.
 
@@ -112,14 +112,14 @@ No shared extension or dependency is needed for these cells. The shared layer al
 | Code/Text editor | Shared native `Textarea` | Prompt/frame, Markdown source, cursor APIs and focus container are domain-specific | Presentation-only |
 | Result Load/Retry | `Button secondary / small` | Replay state stays in ResultBlock | Presentation-only |
 | Result evidence | Shared Table family, including `TableEmpty` | Provenance and bounded scroll are Result-specific | Presentation-only |
-| Insertion | Existing `InsertionSlot` | Boundary position and hover/focus reveal are domain behavior | Presentation-only |
+| Insertion | Existing `InsertionSlot` with shared `Button secondary / small` | 12 px boundary and overlap are Notebook layout; hover/focus reveal is preserved | Presentation-only |
 | Provenance | Native `<details>` | Exact technical values and current disclosure behavior | Presentation-only |
 
 `Tooltip` is appropriate for an icon-only menu trigger only if its composition with Base UI Menu preserves the trigger contract; the accessible name is required regardless. No standalone Separator or Scroll Area export exists: use token borders and native local overflow. No Tabs, Popover, Badge, Card, or extra editor library is justified for a cell. Base UI remains underneath the repository's shared shadcn-style wrappers; do not import it directly into `Notebook.tsx` for these controls.
 
 ## 7. Current gaps and independently implementable tasks
 
-1. **Shared strip and actions — presentation-only, with trigger check.** Align Text/Code/Result labels, states and right actions; compose the locally styled cell menu trigger with the shared icon Button. Preserve menu actions, confirmation, selection and insertion boundaries.
+1. **Floating actions — presentation-only, with trigger check.** The visible type/number strip is gone; preserve real state words, right actions and accessible section names. Compose the locally styled cell menu trigger with the shared icon Button in a later pass. Preserve menu actions, confirmation, selection and insertion boundaries.
 2. **Code frame and focus — presentation-only.** Reuse the code-surface token after rendered comparison, align prompt in preview/edit, reduce the output footer's weight, and replace the current 1 px accent focus cue with the documented 2 px focus-ring cue. Keep the source inert and drafts/keyboard paths intact.
 3. **Markdown reading rhythm — presentation-only.** Apply documented type roles, a roughly 720 px prose measure, deliberate headings/list spacing, safe link focus, and local fenced-code overflow. Record nested lists as unsupported; a parser change is a separate behavioral task, not part of this redesign.
 4. **Result hierarchy and table — presentation-only.** Reorder real operation/source/summary/count/time visually, retain all provenance, use shared Table types and type-based numeric alignment, and contain wide/long values in the existing table region.
