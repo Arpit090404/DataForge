@@ -8,6 +8,8 @@
 
 **Follow-up (2026-11-19):** The cell-affordance finding below records the original audit state and recommendation. The editor now shows a contextual Edit action for a selected preview Code or Text cell. A trial that kept adjacent Code/Text insertion controls visible on selection was reverted after preview review; insertion controls now reveal on hover or keyboard focus only. The remaining audit text is historical and should not be read as a current implementation map.
 
+**Current-state note (2026-11-20):** The Home initial loading, failure/retry, empty-project and search-empty states, compact two-line narrow rows, and shared row-menu trigger have since been implemented. The Home heading now uses a small New Notebook action aligned with the title; 28 px search and sort controls sit together without a visible “Sort by” prefix. The shared Chat sidebar now collapses Threads when entering Notebook so Sources fills its height, and restores Threads on return. The findings below remain the original audit evidence, including recommendations that were superseded; use `spec/NOTEBOOK_REDESIGN_SPEC.md` and current source for the active contract. Native WebView2 verification is still outstanding.
+
 The Impeccable detector command, `.agents/skills/impeccable/scripts/impeccable.cmd detect --json apps/desktop/src/Notebook.tsx`, returned `[]` (zero source-scan findings). No current native app or CDP listener was available; existing executables predate the Notebook source. No rendered screenshots, overlay, or live contrast results were obtained. A clean source scan does not clear the interaction findings below.
 
 ## Executive assessment

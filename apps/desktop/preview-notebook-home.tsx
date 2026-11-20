@@ -1,5 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { Database, FilePlus2, FileSpreadsheet, MessageSquare, Plus, RefreshCw } from 'lucide-react';
 import NotebookWorkspace from './src/Notebook';
 import './src/tailwind.css';
 import './src/styles.css';
@@ -32,7 +33,17 @@ let notebooks = [
   },
 };
 
-createRoot(document.getElementById('root')!).render(<div className="app-shell notebook-mode" style={{ '--sidebar-width': '248px' } as React.CSSProperties}>
-  <header className="topbar"><div className="top-identity"><strong className="brand">DataForge</strong><span className="top-project">Preview project</span></div><div className="mode-switch"><button>Chat</button><button className="active">Notebook</button><button>Dashboard</button></div><div /></header>
-  <div className="body-grid"><aside className="sidebar"><div className="sidebar-header">SOURCES</div><div className="source-list"><div className="source-item"><div className="source-copy"><span className="source-name">sales.csv</span><span className="source-meta">CSV source</span></div></div></div></aside><main className="main-workspace"><div className="workspace-content"><NotebookWorkspace active projectName="Preview project" sources={[]} onDirtyChange={() => {}} /></div></main></div>
-</div>);
+function Preview() {
+  const [mode, setMode] = React.useState<'Chat' | 'Notebook'>('Notebook');
+  const notebookMode = mode === 'Notebook';
+  return <div className={`app-shell${notebookMode ? ' notebook-mode' : ''}`} style={{ '--sidebar-width': '248px' } as React.CSSProperties}>
+    <header className="topbar"><div className="top-identity"><strong className="brand">DataForge</strong><span className="top-project">Preview project</span></div><div className="mode-switch" role="group" aria-label="Workspace mode"><button className={mode === 'Chat' ? 'active' : ''} aria-pressed={mode === 'Chat'} onClick={() => setMode('Chat')}>Chat</button><button className={notebookMode ? 'active' : ''} aria-pressed={notebookMode} onClick={() => setMode('Notebook')}>Notebook</button><button disabled>Dashboard</button></div><div /></header>
+    <div className="body-grid inspector-hidden"><aside className="left-sidebar" aria-label="Workspace navigation">
+      <div className="threads-section" aria-hidden={notebookMode} inert={notebookMode}><div className="section-heading"><span>THREADS</span><button className="section-actions" disabled aria-label="Threads are not available yet"><Plus size={16}/></button></div><div className="section-empty"><MessageSquare size={16}/><span>No threads yet</span><small>Agent investigations are coming later.</small></div></div>
+      <div className="sources-section"><div className="section-heading"><span>SOURCES</span><div className="section-actions"><button disabled aria-label="Refresh source status"><RefreshCw size={14}/></button><button disabled aria-label="Register CSV source"><Plus size={16}/></button></div></div><div className="source-list"><button className="source-item" onClick={() => {}}><FileSpreadsheet size={16}/><span className="source-copy"><span className="source-name">sales.csv</span><span className="source-meta">CSV · 42 KB</span></span><span className="status-dot" aria-hidden="true" /></button></div><div className="sources-footer"><button className="add-source" disabled><FilePlus2 size={16}/> Add CSV source</button></div></div>
+      <div className="sidebar-footer"><span className="local-dot"/> Local workspace <span className="version">v0.1</span></div>
+    </aside><main className="main-workspace"><div className="workspace-content">{notebookMode ? <NotebookWorkspace active projectName="Preview project" sources={[]} onDirtyChange={() => {}} /> : <div className="mode-empty"><Database size={28}/><h1>Select a source to continue.</h1></div>}</div></main></div>
+  </div>;
+}
+
+createRoot(document.getElementById('root')!).render(<Preview />);

@@ -3,6 +3,18 @@
 **Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook design-document reconciliation (2026-11-20)
+
+Updated the active global design/UX contracts and all Notebook design specifications to reflect the implemented Home refinement: small New Notebook action aligned with the heading, adjacent 28 px search/sort controls, and the shared Chat sidebar whose Threads region collapses so Sources fills the space in Notebook mode. The Home and consolidated implementation sections now mark Home source work complete and native/real-project acceptance still open. The original audit and baseline retain their historical findings with explicit current-state notes. Editor and cell designs remain planned, and no application source, token, component or runtime behavior changed in this documentation pass.
+
+**Verification:** Cross-checked the design-document set against current Home/Sidebar source and searched for stale active instructions. Documentation diff and whitespace checks passed. No build, test suite or new rendered/native check was needed for this documentation-only pass.
+
+## Notebook Home control and sidebar refinement (2026-11-20)
+
+The Home heading now places a small primary New Notebook action on the title line. Search is capped at 280 px and sits beside a 120 px sort Select; both render at 28 px high, and sorting keeps a screen-reader label without visible “Sort by” text. The actual Chat/Notebook sidebar remains shared: in Notebook mode Threads collapses and Sources rises to fill the space; returning to Chat restores Threads. The transition respects reduced-motion preference and hides collapsed Threads from focus. The web-preview fixture now uses the same sidebar structure and a Chat/Notebook toggle. Home and consolidated specifications were updated to reflect these refinements.
+
+**Focused checks:** Desktop TypeScript, Notebook Home search/sort, design tokens and form-control checks passed. The 900 × 600 browser preview showed aligned 28 px search/sort, the smaller heading action, the full-height Sources sidebar and no page-level horizontal overflow. Browser interaction showed Sources moving from below Threads in Chat to the top in Notebook after the transition. At a 1440 × 900 browser viewport, the four-column list remained visible with no page-level horizontal overflow. The browser fixture uses synthetic in-memory data; native Windows WebView2 behavior remains unverified. No full build or test suite ran.
+
 ## Notebook Home browser preview (2026-11-20)
 
 Opened the actual `NotebookWorkspace` Home in a Vite browser preview using a disposable in-memory project fixture. Inspected rendered screenshots at 1440 × 900 and 900 × 600 with the Sources sidebar shown. The narrow view keeps search, sorting, notebook titles, metadata and row menus visible in a two-line list, and a browser geometry check found no page-level horizontal overflow at 900 × 600. Preview entry files are `apps/desktop/preview-notebook-home.html` and `apps/desktop/preview-notebook-home.tsx`; they do not use the native Tauri backend or persist notebook changes. Native WebView2 and the full application shell remain unverified.

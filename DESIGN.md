@@ -169,7 +169,7 @@ The interface uses Inter when available, then Segoe UI and Arial. Code and techn
 
 ## Layout
 
-The native Windows title bar stays in place. Beneath it, a 44 px application toolbar holds identity and project context on the left, a centered Chat / Notebook / Dashboard selector, and project and contextual actions on the right. In Chat, the left sidebar holds Threads and Sources, the center holds the workspace and bottom composer, and a contextual 270 px inspector can occupy the right. Notebook removes Threads, composer, and inspector so the central document has working room.
+The native Windows title bar stays in place. Beneath it, a 44 px application toolbar holds identity and project context on the left, a centered Chat / Notebook / Dashboard selector, and project and contextual actions on the right. In Chat, the left sidebar holds Threads above Sources, the center holds the workspace and bottom composer, and a contextual 270 px inspector can occupy the right. Notebook keeps the same sidebar: Threads collapses during the mode switch and Sources rises to fill its space. The composer and inspector leave the Notebook workspace.
 
 The left sidebar defaults to 248 px and resizes between 210 and 340 px. The application uses a 4 px spacing scale from 4 to 48 px, with 12 px horizontal control padding, 16 px panel insets, 24 px section spacing, and 32 px page margins. At narrower widths the inspector collapses first; workspace container rules adapt content to the available center track. The Tauri window minimum is 900 × 600 px.
 
@@ -208,7 +208,7 @@ Source badges use ready, changed, and missing tones with text labels. Menus, pop
 
 ### Tables and notebook
 
-Shared native table primitives support CSV previews, analytical results, and notebook result replay. Headers stick within bounded scroll regions; wide data scrolls horizontally. Notebook Home uses a compact list, while editor cells make a continuous, readable document. Selection uses a quiet left edge and exposes a contextual Edit action for preview Code and Text cells. Code/Text insertion controls at cell boundaries appear on hover or keyboard focus; selecting a cell alone does not keep them visible.
+Shared native table primitives support CSV previews, analytical results, and notebook result replay. Headers stick within bounded scroll regions; wide data scrolls horizontally. Notebook Home uses a compact list, a small New Notebook action aligned to its title, and adjacent 28 px search/sort controls. Editor cells make a continuous, readable document. Selection uses a quiet left edge and exposes a contextual Edit action for preview Code and Text cells. Code/Text insertion controls at cell boundaries appear on hover or keyboard focus; selecting a cell alone does not keep them visible.
 
 ## Do's and Don'ts
 

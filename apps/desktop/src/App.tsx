@@ -285,10 +285,10 @@ export default function App() {
     </header>
     <div className={`body-grid ${inspectorVisible ? '' : 'inspector-hidden'}${notebookMode && !notebookSidebarOpen ? ' sidebar-hidden' : ''}`}>
       {(!notebookMode || notebookSidebarOpen) && <aside className="left-sidebar" aria-label="Workspace navigation">
-        {!notebookMode && <div className="threads-section">
+        <div className="threads-section" aria-hidden={notebookMode} inert={notebookMode}>
           <div className="section-heading"><span>THREADS</span><IconButton label="Threads are not available yet" onClick={() => {}} disabled title="Agent investigations are not available in this version"><Plus size={16}/></IconButton></div>
           <div className="section-empty"><MessageSquare size={16}/><span>No threads yet</span><small>Agent investigations are coming later.</small></div>
-        </div>}
+        </div>
         <div className="sources-section">
           <div className="section-heading"><span>SOURCES</span><div className="section-actions"><IconButton label="Refresh source status" onClick={refreshDatasets} disabled={!project || !!busy}><RefreshCw size={14}/></IconButton><IconButton label="Register CSV source" onClick={registerCsv} disabled={!project || !!busy}><Plus size={16}/></IconButton></div></div>
           {project ? datasets.length ? <div className="source-list">

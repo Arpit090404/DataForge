@@ -1,6 +1,6 @@
 # Notebook reference analysis: Databricks patterns for DataForge
 
-**Status:** Design direction, 2026-11-20. Research and specification only. The current DataForge behavior in `spec/UX_SPEC.md`, `spec/DESIGN_SYSTEM.md`, `spec/NOTEBOOK_REDESIGN_BASELINE.md`, and `apps/desktop/src/Notebook.tsx` is the implementation constraint. The older `spec/NOTEBOOK_UX_AUDIT.md` is historical evidence, not a request to restore superseded ideas.
+**Status:** Reference research, 2026-11-20; updated for the implemented Home refinement. This is design rationale, not the live implementation contract. The latest `spec/NOTEBOOK_REDESIGN_SPEC.md`, `spec/UX_SPEC.md`, `spec/DESIGN_SYSTEM.md`, and application source govern current behavior. The older `spec/NOTEBOOK_UX_AUDIT.md` is historical evidence, not a request to restore superseded ideas.
 
 ## Reference scope and evidence
 
@@ -33,13 +33,13 @@ The useful reference is an analytical document where the notebook identity, cell
 
 ## 3. Target Notebook Home experience
 
-Home is the **project notebook browser**, not an execution dashboard. The heading identifies the current project and the primary New Notebook action. Directly below it, search and sort act on a compact list. Each row gives the title first, then last modification and cell count, with Rename/Delete in a shared action menu; Delete retains confirmation. Long titles receive the available reading width before metadata does. Creation opens the new notebook immediately, as it does today.
+Home is the **project notebook browser**, not an execution dashboard. The heading identifies the current project and aligns a small primary New Notebook action with the Notebooks title. Directly below it, a 28 px search field capped at 280 px sits beside a 28 px, 120 px sort Select; the redundant visible “Sort by” prefix is omitted while an accessible label remains. They act on a compact list. Each row gives the title first, then last modification and cell count, with Rename/Delete in a shared action menu; Delete retains confirmation. Long titles receive the available reading width before metadata does. Creation opens the new notebook immediately, as it does today.
 
 The same list region represents five truthful states: initial loading, loaded rows, successfully loaded zero notebooks, initial failure with Retry, and Retry in progress. Search with zero matches has its own message. A later refresh error may coexist with the previously loaded list. The target does not add draft folders, notebook tabs or a sidebar file tree because DataForge notebooks are project-scoped and the current workflow already provides direct search and open.
 
 ## 4. Target Notebook Editor experience
 
-The existing application toolbar and optional Sources sidebar frame the editor. Inside the central workspace, one compact editor toolbar anchors Back, editable title and save status on the left or center of the available line; + Cell, Save and Shortcuts remain discoverable without crowding the title. “No runtime” is a text status, not a disabled Run control. At narrow width, secondary status yields space before title and document content. The document scrolls independently and does not reserve a right inspector.
+The existing application toolbar and shared, optional Sources sidebar frame the editor. In Notebook mode the Threads region collapses and Sources fills the sidebar; returning to Chat restores Threads. Inside the central workspace, one compact editor toolbar anchors Back, editable title and save status on the left or center of the available line; + Cell, Save and Shortcuts remain discoverable without crowding the title. “No runtime” is a text status, not a disabled Run control. At narrow width, secondary status yields space before title and document content. The document scrolls independently and does not reserve a right inspector.
 
 Cells form a continuous vertical document with restrained selection, predictable spacing and no stack of heavy cards. A selected preview Code/Text cell exposes one contextual Edit action. The cell menu keeps Edit/Preview, insertion, movement and destructive Delete in their current groups. Boundary + Code/+ Text actions appear on hover or keyboard focus only, including the first and last boundaries; the empty notebook has explicit creation choices. No toolbar needs to be repeated permanently on every cell.
 
