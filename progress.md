@@ -3,6 +3,10 @@
 **Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## New skill added (2026-11-21)
+
+Added MattPocock/skills to codex for better system design
+
 ## Notebook Editor compact cell chrome refinement (2026-11-20)
 
 Removed visible Text/Code/Result number labels from cell toolbars while retaining each cell's accessible name. Cell controls now float at the upper-right boundary on hover, selection, keyboard focus or when a real Unsaved/delete warning is present, reducing the permanent gap above content. Code source and its factual unavailable-output footer share the visible frame; the selected Code border follows that frame rather than a larger outer cell. The inert `[ ]` prompt sits in the left gutter outside the frame. The Editor header uses a Lucide Keyboard icon in the shared Popover Button and a Save status icon immediately to its right, with accessible live save text. Notebook title and Notebooks button explicitly share the 11 px secondary type role. No Run control, Markdown toolbar, execution semantics or cell actions were added.
