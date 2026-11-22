@@ -1,7 +1,15 @@
 # DataForge progress
 
-**Updated:** 2026-11-20
+**Updated:** 2026-11-22
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
+
+## Notebook Result cell refinement and toolbar review (2026-11-22)
+
+Result headers now put the saved operation and registered source first, the real input summary second, and recorded row count/time in quieter metadata. Load and Retry use the shared secondary/small Button. Returned `integer` and `decimal` columns align their headers and values right; full cell values remain in the DOM and native title while the shared table keeps its 8/12 px padding, bounded scroll, and compact line height. The Result inset now uses the documented panel spacing. Replay scope, failure, zero-row, and exact execution details remain as before.
+
+**Focused verification:** Desktop `tsc --noEmit`, Notebook provenance, design-token and form-control tests passed; Impeccable `detect --json --changed` returned `[]`; `git diff --check` passed. This pass was not inspected in a rendered browser or native WebView2, so visual density, narrow-width wrapping, actual replay, and native title behavior remain unverified. No full build or test suite ran.
+
+**Next toolbar implementation task (proposal only):** The current sticky header has Back, editable title, Shortcuts, icon-only save status, and truthful No runtime. Reuse the existing `insert` and `saveNotebook` handlers to add one compact `+ Cell` menu (Code/Text, appending a cell) and one explicit Save Button, then keep Shortcuts, save status and No runtime as secondary items. Use shared Button/DropdownMenu primitives, preserve keyboard order and the two-row narrow layout, and verify save, insertion, disabled/busy, focus return and long-title behavior. Update `spec/NOTEBOOK_EDITOR_LAYOUT.md` and `spec/NOTEBOOK_REDESIGN_SPEC.md` first: their current header contract intentionally removed + Cell and Save. No toolbar implementation or spec change was made in this pass.
 
 ## Notebook Markdown cell refinement (2026-11-22)
 
