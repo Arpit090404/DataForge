@@ -3,6 +3,12 @@
 **Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook Code cell visual refinement (2026-11-22)
+
+Code preview and editor share the same source padding, type and wrapping. Code and Text cell frames align on the same edges, with Markdown preview prose still capped at 720 px. The Code frame uses the 2 px focus-ring token for keyboard selection and editor focus. A pending cell focus no longer takes focus back from the editor after double-click. The external `[ ]` prompt and hover/focus insertion controls remain in place.
+
+**Verification:** At 1280 × 800 in the browser fixture, Code and Text frames measured 920 px wide, preview and edit source text shared the same origin, and the hover insertion buttons crossed both adjacent frame edges by 7 px. Inspected the rendered editing state and checked double-click, Escape and Enter focus transitions. Desktop TypeScript, Notebook keyboard decisions, design tokens and form controls passed. Impeccable reported no findings. Native WebView2 was unavailable for verification.
+
 ## New skill added (2026-11-21)
 
 Added MattPocock/skills to codex for better system design

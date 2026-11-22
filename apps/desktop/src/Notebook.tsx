@@ -131,7 +131,12 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   async function load(id: string) { const next = await invoke<Notebook>('get_notebook', { id }); setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null); if (next.blocks[0]) focusCell(next.blocks[0].id); }
   async function reload(id = notebook?.id) { if (id) { setNotebook(await invoke<Notebook>('get_notebook', { id })); await refresh(); } }
   function select(id: string) { setSelectedId(id); if (editingId && editingId !== id) setEditingId(null); clearDelete(); }
-  function focusCell(id: string) { requestAnimationFrame(() => cellRefs.current[id]?.focus()); }
+  function focusCell(id: string) {
+    requestAnimationFrame(() => {
+      const cell = cellRefs.current[id];
+      if (cell && !cell.contains(editorRef.current)) cell.focus();
+    });
+  }
   function commandMode() { if (editingId && editorRef.current) cursor.current[editingId] = [editorRef.current.selectionStart, editorRef.current.selectionEnd]; setEditingId(null); if (selectedId) focusCell(selectedId); }
   function clearDelete() { if (deleteTimer.current) clearTimeout(deleteTimer.current); deleteTimer.current = null; setDeleteArmed(null); }
   async function saveCell(id: string) {
