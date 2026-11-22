@@ -21,6 +21,43 @@ function inline(text: string): React.ReactNode[] {
   return parts;
 }
 
+const listMarker = /^([ \t]*)([-*+]|\d{1,9}\.)[ \t]+(.+)$/;
+
+function readLists(lines: string[], start: number) {
+  type Item = { line: number; text: string; children: React.ReactNode[] };
+  type List = { indent: number; ordered: boolean; start: number; items: Item[] };
+  const stack: List[] = [];
+  const nodes: React.ReactNode[] = [];
+  function closeList() {
+    const list = stack.pop()!;
+    const items = list.items.map(item => <li key={item.line}>{inline(item.text)}{item.children}</li>);
+    const key = list.items[0].line;
+    const node = list.ordered ? <ol key={key} start={list.start === 1 ? undefined : list.start}>{items}</ol> : <ul key={key}>{items}</ul>;
+    (stack.at(-1)?.items.at(-1)?.children ?? nodes).push(node);
+  }
+
+  let i = start;
+  while (i < lines.length) {
+    const marker = listMarker.exec(lines[i]);
+    if (!marker) {
+      if (!lines[i].trim() && listMarker.test(lines[i + 1] ?? '')) { i++; continue; }
+      break;
+    }
+    const indent = [...marker[1]].reduce((column, char) => column + (char === '\t' ? 4 - column % 4 : 1), 0);
+    const ordered = marker[2].endsWith('.');
+    while (stack.length && stack[stack.length - 1].indent > indent) closeList();
+    const current = stack.at(-1);
+    if (current?.indent === indent && current.ordered !== ordered) closeList();
+    if (stack.at(-1)?.indent !== indent) {
+      stack.push({ indent, ordered, start: ordered ? parseInt(marker[2], 10) : 1, items: [] });
+    }
+    stack.at(-1)!.items.push({ line: i, text: marker[3], children: [] });
+    i++;
+  }
+  while (stack.length) closeList();
+  return { nodes, end: i };
+}
+
 export function Markdown({ text }: { text: string }) {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const nodes: React.ReactNode[] = [];
@@ -41,18 +78,14 @@ export function Markdown({ text }: { text: string }) {
       nodes.push(level === 1 ? <h1 key={i}>{content}</h1> : level === 2 ? <h2 key={i}>{content}</h2> : level === 3 ? <h3 key={i}>{content}</h3> : level === 4 ? <h4 key={i}>{content}</h4> : level === 5 ? <h5 key={i}>{content}</h5> : <h6 key={i}>{content}</h6>);
       i++; continue;
     }
-    const list = /^\s*([-*+] |\d+\. )(.+)$/.exec(lines[i]);
-    if (list) {
-      const ordered = /^\d/.test(list[1]); const start = i; const items: React.ReactNode[] = [];
-      while (i < lines.length) {
-        const item = /^\s*([-*+] |\d+\. )(.+)$/.exec(lines[i]);
-        if (!item || /^\d/.test(item[1]) !== ordered) break;
-        items.push(<li key={i}>{inline(item[2])}</li>); i++;
-      }
-      nodes.push(ordered ? <ol key={start}>{items}</ol> : <ul key={start}>{items}</ul>); continue;
+    if (listMarker.test(lines[i])) {
+      const list = readLists(lines, i);
+      nodes.push(...list.nodes);
+      i = list.end;
+      continue;
     }
     const start = i; const paragraph: string[] = [];
-    while (i < lines.length && lines[i].trim() && (i === start || !/^(#{1,6}\s+|```|\s*([-*+] |\d+\. ))/.test(lines[i]))) paragraph.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() && (i === start || (!/^(#{1,6}\s+|```)/.test(lines[i]) && !listMarker.test(lines[i])))) paragraph.push(lines[i++]);
     nodes.push(<p key={start}>{inline(paragraph.join(' '))}</p>);
   }
   return <div className="notebook-markdown">{nodes.length ? nodes : <p className="notebook-muted">Empty Markdown block</p>}</div>;
