@@ -3,6 +3,14 @@
 **Updated:** 2026-11-22
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook UI integration polish (2026-11-22)
+
+Aligned Markdown, Code, Result and insertion boundaries on one prompt gutter. Result tables now use the full frame width, with token insets for provenance, compact load guidance and a consistent footer/details hierarchy. Cell menus use the shared icon Button and remain visible while open. Selection scrolling accounts for the sticky toolbar. Removed superseded Result and menu skins.
+
+Visually inspected Home and the loaded Editor at 900 × 600 and 1280 × 800. The narrow Editor had identical 574 px cell frames and no page overflow. Synthetic Result replay displayed 15 rows. Title Save and Back/reopen retained the edited title in the browser fixture. Restoring the preview host resolved screenshot capture failures.
+
+Passed desktop TypeScript, Notebook keyboard/Home/provenance, Markdown, design-token and form-control checks. Rust `cargo test --locked --offline --lib notebook::tests` passed four disposable-project persistence tests covering Markdown/Code reopen, order, relative insertion and invalid references. Native WebView2 UI interaction remains unverified because the native inspection subagent reached its usage limit. The browser fixture uses in-memory data. Native UI acceptance and real UI-to-host persistence remain open.
+
 ## Notebook toolbar redesign
 
 The sticky toolbar now aligns with the document track and groups the editable notebook path, visible live save status, Save, Add cell, and More notebook options. The overflow popover holds the existing shortcut reference and execution availability note. The toolbar stays on one row at regular desktop widths and stacks its groups in a center track at or below 520 px.
