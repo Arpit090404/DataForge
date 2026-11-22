@@ -3,6 +3,12 @@
 **Updated:** 2026-11-22
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook toolbar redesign
+
+The sticky toolbar now aligns with the document track and groups the editable notebook path, visible live save status, Save, Add cell, and More notebook options. The overflow popover holds the existing shortcut reference and execution availability note. The toolbar stays on one row at regular desktop widths and stacks its groups in a center track at or below 520 px.
+
+The synthetic browser fixture measured a 45 px sticky header with no page overflow at 900 × 600 and 1280 × 800. The narrow check included a long edited title and a 340 px Sources sidebar. Manual title save persisted when returning Home, both popups returned focus on Escape, Add Code appended and focused the new editor, and boundary insertion appeared on hover. Desktop TypeScript, Notebook keyboard, design token, form control, Impeccable, and `git diff --check` passed. Screenshot capture was unavailable. Native WebView2 and real project persistence remain unverified.
+
 ## Notebook web preview with Result evidence (2026-11-22)
 
 The existing Vite Notebook preview now includes a synthetic saved grouped execution, a Result cell with 15 replayed rows, and in-memory handlers for loading, adding and saving cells. The tab title identifies its synthetic data. Opened the Editor in the shared web preview at 1280 × 800, loaded the Result, and left it visible. Browser checks found numeric headers right-aligned, the + Cell menu populated with Code and Text, and no page-level horizontal overflow at 900 × 600. The 900 px header occupied two rows, and the Result stayed within its local table container. This fixture does not persist to a real project or verify native WebView2 behavior.

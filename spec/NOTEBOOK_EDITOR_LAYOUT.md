@@ -10,17 +10,10 @@ The header and cell-boundary changes are presentational; idle saving after 1200 
 
 ## 2. Header and toolbar blueprint
 
-The sticky Editor header sits below the global toolbar. Its DOM and keyboard order is: shared ghost/small **Notebooks** Back button, a quiet slash divider, the current notebook title in a labeled shared Input, **+ Cell** menu, **Save** Button, icon-only **Shortcuts** Popover trigger, Save status icon, then plain **No runtime**. Back retains save-before-return and stays disabled while busy. The title and Notebooks Button explicitly use the same 11 px secondary type role; the title is bold in a 28 px high field capped at 240 px. Long names scroll inside the field; its enclosing focus cue remains visible. The path reads Notebooks / Regional sales review for that notebook, with the title still editable.
+The sticky Notebook toolbar groups the Notebooks breadcrumb and editable title on the left, with live save status, Save, Add cell, and More notebook options on the right. Add cell appends Code or Text. Save uses the existing save handler and is disabled while busy or clean. More notebook options opens the shortcut reference and execution availability note.
 
-Wide center track: [Notebooks] / [Regional sales review]        [+ Cell] [Save] [Keyboard icon] [Save status icon] No runtime
+The centered toolbar aligns with the cell track. Small controls sit in a 45 px row when space permits. The action group wraps below the breadcrumb when the available center width requires it. The labeled title Input uses component type and is capped at 240 px. Existing keyboard shortcuts, idle save, and save-before-Back remain available.
 
-Center track at most 900 px:
-[Notebooks] / [Regional sales review]
-[+ Cell] [Save] [Keyboard icon] [Save status icon] No runtime
-
-The + Cell menu appends Code or Text through the existing insertion handler; it does not run code or add a Result. Save calls the existing notebook save handler and is disabled when there are no changes or while busy. The Save status icon sits immediately right of Shortcuts and exposes the actual Saved / Unsaved changes / Saving state through a live screen-reader label and native title. The Shortcuts icon is the shared icon Button with an accessible name and opens the existing Popover. No runtime retains its factual disclosure that Code execution is unavailable. Existing Ctrl+S, Ctrl+Enter, Shift+Enter, Back save-before-return, and boundary insertion paths remain. An editor draft/title change schedules saving after 1200 ms without further input; failure retains the draft and shows an error.
-
-Shared Button, DropdownMenu, Input, and Popover own the standard controls; no shared variant or new library is needed. Keep one header row when the center track is above 900 px, two rows at or below it. The header uses the central surface and a 1 px bottom border. **Affected:** Notebook.tsx Editor header and Editor header selectors in styles.css. **Class:** existing actions exposed through the header; existing keyboard and navigation handlers retained.
 ## 3. Document canvas and scrolling
 
 Choose a **hybrid width**. Use one centered cell track, capped at 1120 px, with `--space-page` (32 px) margins when the center track is above 900 px and `--space-panel` (16 px) at or below 900 px. The cell sequence, selection edge, insertion boundaries, Code surfaces, and Result surfaces align to this track. Inside a Text cell, constrain rendered Markdown prose to roughly 720 px while keeping it aligned to the cell's left content inset; do not center a narrow text column independently. Code source and Result content may use the full cell width. This is a layout measure recommendation, not a redesign of Markdown typography or individual cell interiors. **Affected:** `.notebook-blocks`, `.notebook-preview`, `.notebook-markdown`, `.notebook-output` in `styles.css`; no new primitive. **Class:** presentation-only.
@@ -44,22 +37,21 @@ The installed `components/ui/` layer is the shadcn-style foundation on Base UI w
 | Element | Existing component and composition | Visual change / affected area | Class |
 | --- | --- | --- | --- |
 | Back | `Button` ghost / small, visible text | Replace raw Back skin in header | Presentation-only; verify save-before-return path |
-| Title | `Input` in Notebook-owned borderless title frame | Bold 11 px role, 28 px high, maximum 240 px wide; `.notebook-title` | Presentation-only |
-| + Cell | Shared `Button secondary / small` in `DropdownMenuTrigger`; Code/Text `DropdownMenuItem`s | Append through existing `insert` handler; `.notebook-toolbar-actions` | Existing action exposed in header |
-| Save | Shared `Button secondary / small` | Existing `saveNotebook` handler; disabled when clean or busy | Existing action exposed in header |
-| Save state | Lucide Save icon in semantic `role="status"`, no Badge | Immediately right of Shortcuts, with live hidden text and native title; `.notebook-save-status` | Presentation-only |
+| Title | Shared labeled Input | 13 px role, 28 px high, maximum 240 px wide | Presentation-only |
+| Add cell | Shared `Button secondary / small` in `DropdownMenuTrigger`; Code/Text `DropdownMenuItem`s | Append through existing `insert` handler; `.notebook-toolbar-actions` | Existing action exposed in header |
+| Save | Shared `Button ghost / small` | Existing `saveNotebook` handler; disabled when clean or busy | Existing action exposed in header |
+| Save state | Visible text in a live status region | Beside Save | Presentation-only |
 | Idle save | Existing notebook and block persistence handlers | Schedule after 1200 ms idle; keep draft/error on failure | Behavioral change |
-| Shortcuts | `Popover` with shared `Button variant="icon"` and Lucide Keyboard | Icon-only named trigger immediately before Save status; `.notebook-toolbar-actions` | Presentation-only |
-| No runtime | Plain text plus current native title | Quiet trailing status; `.notebook-runtime` | Presentation-only |
+| More notebook options | Shared icon Button and Popover | Shortcut reference and execution availability | Presentation-only |
 | Canvas and cells | Notebook-owned layout, `InsertionSlot`, shared secondary/small insertion Buttons | Centered hybrid track and 12 px boundary | Presentation-only |
 | Saved execution section | Shared `Select` default, `Button` secondary / default, native `<details>` | Remains after cells in document flow; `.notebook-add` | Presentation-only |
 | Result table | Existing shared Table family in local `.table-scroll` | Keep wide data contained within Result cell | Presentation-only |
 
-Cell menus and Code-language Select retain their actions. `Badge` remains reserved for source ready/changed/missing meanings. The mode selector is not Tabs. Menu-only separators use `DropdownMenuSeparator`; layout dividers use 1 px CSS token borders. Shortcuts uses an accessible icon Button with a native title; the Save icon is status beside the distinct Save Button. **Class:** existing actions exposed; no new component.
+Cell menus and Code-language Select retain their actions. `Badge` remains reserved for source ready/changed/missing meanings. The mode selector is not Tabs. Menu-only separators use `DropdownMenuSeparator`; layout dividers use 1 px CSS token borders.
 
 ## 6. Sizes, type and surface
 
-Use the documented UI family and token roles: Notebooks and the bold editable title share the 11 px small-control role; runtime status uses 10 px meta, and Code source uses its existing 12 px technical role. Shortcuts and Save status occupy 28 px icon positions. Header side padding is `--space-page` wide and `--space-panel` narrow; groups use `--space-2`. The first cell begins `--space-section` below the header. The header and canvas use `--color-surface`, with one `--color-border` divider and no shadow. Shared controls own hover, disabled and focus-ring treatment. **Affected:** Editor selectors in `styles.css`; shared tokens only. **Class:** presentation-only.
+The toolbar uses the central surface and a thin divider. Its horizontal insets match the document track, with 32 px wide margins and 16 px narrow margins. Controls use shared 28 px sizes. The title uses 13 px component type and save status uses 11 px secondary type.
 
 ## 7. Responsive specification
 
@@ -67,8 +59,8 @@ Base decisions on the **actual central track**, since Sources resizes from 210 t
 
 | Window / center track | Header and canvas | Overflow and priority |
 | --- | --- | --- |
-| **1440 × 900**, Sources open at 248 px: center about 1192 px; at 340 px: about 1100 px. Closed: center about 1440 px. | One sticky header row at center widths above 900 px. Canvas cap 1120 px after 32 px side margins; Markdown measure about 720 px inside the cell track. | The breadcrumb title caps at 240 px; icon-only Shortcuts and Save status trail it. Code soft-wraps; Result table scrolls locally. |
-| **900 × 600**, Sources open at 248 px: center about 652 px; at 340 px: about 560 px; at 210 px: about 690 px. Closed: center about 900 px. | Two-row sticky header at center widths at most 900 px. Breadcrumb path occupies row one; Shortcuts, Save status and No runtime occupy row two. Canvas uses 16 px side margins, leaving about 528–868 px across sidebar states. | Title remains editable with internal text scrolling. Code stays within its cell; wide Result tables scroll locally. The document alone scrolls vertically. |
+| **1440 × 900**, Sources open at 248 px: center about 1192 px; at 340 px: about 1100 px. Closed: center about 1440 px. | One sticky header row. Canvas cap 1120 px after 32 px side margins; Markdown measure about 720 px inside the cell track. | The breadcrumb title caps at 240 px; save status and commands form the right group. Code soft-wraps; Result table scrolls locally. |
+| **900 × 600**, Sources open at 248 px: center about 652 px; at 340 px: about 560 px; at 210 px: about 690 px. Closed: center about 900 px. | One sticky row at typical Sources widths. The action group wraps when space runs out. Canvas uses 16 px side margins, leaving about 528–868 px across sidebar states. | Title remains editable with internal text scrolling. Code stays within its cell; wide Result tables scroll locally. The document alone scrolls vertically. |
 
 At zoom or long localized strings, keep the breadcrumb path before Shortcuts in DOM order; the title scrolls inside its capped Input. The first cell should remain visible below the compact header at 900 × 600 with a populated notebook. **Affected:** `@container` Editor rules in `styles.css`; **class:** presentation-only.
 
@@ -82,7 +74,7 @@ At zoom or long localized strings, keep the breadcrumb path before Shortcuts in 
 
 ## 9. Implementation status and remaining checks
 
-1. **Implemented header refinement.** The Editor shows a Notebooks / editable title path, icon-only Shortcuts, a live Save status icon and No runtime. The title matches Notebooks type size, and + Cell and Save do not occupy the header. Earlier browser checks covered the previous header; these latest icon changes have only source and focused-check verification. **Presentation-only plus prior idle-save behavior.**
+1. **Implemented header refinement.** The sticky toolbar groups the notebook path and document controls. Verify keyboard focus, saving, insertion and fit at the target window sizes.
 2. **Implemented canvas.** The Editor uses the central surface, a centered 1120 px maximum cell track, 32 px wide or 16 px narrow margins, and a 720 px maximum Markdown measure. The sticky header and one vertical document scroll were checked with ten synthetic blocks. **Presentation-only.**
 3. **Remaining acceptance.** Inspect the native WebView2 Editor with a real project at both target sizes and Sources widths 210/248/340 px and closed. Include busy/error/save-before-navigation, long Code lines, wide Results, zoom, hover/focus insertion and saved-execution placement. The browser fixture does not exercise native persistence or replay. **Verification only; no behavior change.**
 4. **Separate cell task.** Code, Markdown and Result internals, cell focus styling and detailed evidence hierarchy remain under `NOTEBOOK_CELL_DESIGN.md`. **Outside this Editor workspace task.**

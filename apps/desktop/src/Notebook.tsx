@@ -13,7 +13,7 @@ import { Markdown } from './Markdown';
 import { decideDeletePress, decideNotebookKey, indentCode } from './notebookKeys';
 import { filterNotebooks, sortNotebooks } from './notebookHome';
 import { describeNotebookExecution, notebookExecutionLabel, registeredSourceName } from './notebookProvenance';
-import { BookOpen, Ellipsis, Keyboard, Plus, Save, Search } from 'lucide-react';
+import { BookOpen, Ellipsis, Plus, Search } from 'lucide-react';
 
 type Execution = { id: string; dataset_id: string; operation_type: string; parameters: string; started_at: string; completed_at: string | null; status: string; result_row_count: number | null; error_summary: string | null; duckdb_version: string | null; source_fingerprint: string };
 type Result = { execution: Execution; columns: { name: string; data_type: string }[]; rows: (string | null)[][]; total_rows: number | null; has_more: boolean };
@@ -72,6 +72,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   const [executionId, setExecutionId] = useState('');
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
+  const [savingNotebook, setSavingNotebook] = useState(false);
   const [error, setError] = useState('');
   const [deleteArmed, setDeleteArmed] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ kind: 'notebook' | 'cell'; id: string; title?: string } | null>(null);
@@ -153,8 +154,18 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   }
   async function saveNotebook() {
     if (!notebook) return;
-    for (const block of notebook.blocks) await saveCell(block.id);
-    if (title !== notebook.title) { const next = await invoke<Notebook>('rename_notebook', { id: notebook.id, title }); setNotebook(next); setTitle(current => current === title ? next.title : current); await refresh(); }
+    setSavingNotebook(true);
+    try {
+      for (const block of notebook.blocks) await saveCell(block.id);
+      if (title !== notebook.title) {
+        const next = await invoke<Notebook>('rename_notebook', { id: notebook.id, title });
+        setNotebook(next);
+        setTitle(current => current === title ? next.title : current);
+        await refresh();
+      }
+    } finally {
+      setSavingNotebook(false);
+    }
   }
   useEffect(() => { failedAutoSave.current = false; }, [notebook?.id, title, drafts, languages]);
   useEffect(() => {
@@ -225,7 +236,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   }
   const succeeded = executions.find(item => item.id === executionId);
   const visibleNotebooks = sortNotebooks(filterNotebooks(notebooks, search), sort);
-  const saveStatus = busy ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved';
+  const saveStatus = savingNotebook ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved';
   return <div className={`notebook-workspace ${notebook ? 'notebook-editor' : 'notebook-home'}`} onKeyDown={onKeyDown}>
     {error && notebook && <div className="inline-error" role="alert">{error}</div>}
     {!notebook ? <>
@@ -244,11 +255,51 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
         </DropdownMenuContent></DropdownMenu>
       </div>)}{!visibleNotebooks.length && <div className="notebook-home-empty"><BookOpen size={28}/><h2>{notebooks.length ? 'No matching notebooks' : 'Your notebooks start here'}</h2><p>{notebooks.length ? 'Try a different search.' : 'Write text and code, then add saved analytical results as your investigation grows.'}</p></div>}</>}</div>
     </> : <>
-      <div className="notebook-editor-toolbar"><Button variant="ghost" size="small" disabled={busy} onClick={() => void action(async () => { await saveNotebook(); setNotebook(null); setSelectedId(null); setEditingId(null); await refresh(); })}>Notebooks</Button><span className="notebook-path-divider" aria-hidden="true">/</span><div className="notebook-title"><label htmlFor="notebook-title" className="sr-only">Notebook title</label><Input id="notebook-title" maxLength={120} disabled={busy} value={title} onChange={e => setTitle(e.target.value)}/></div><div className="notebook-toolbar-actions"><DropdownMenu><DropdownMenuTrigger render={<Button variant="secondary" size="small" disabled={busy} />}><Plus size={16}/> Cell</DropdownMenuTrigger><DropdownMenuContent><DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('code'))}>Add Code cell</DropdownMenuItem><DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('markdown'))}>Add Text cell</DropdownMenuItem></DropdownMenuContent></DropdownMenu><Button variant="secondary" size="small" disabled={busy || !dirty} onClick={() => void action(saveNotebook)}>Save</Button><Popover><PopoverTrigger render={<Button variant="icon" aria-label="Shortcuts" title="Shortcuts" />}><Keyboard size={16}/></PopoverTrigger><PopoverContent><PopoverTitle className="sr-only">Shortcuts</PopoverTitle><div className="notebook-shortcuts">
-        <section><h3>Command mode</h3><dl><div><dt>↑ / ↓</dt><dd>Select cell</dd></div><div><dt>Enter</dt><dd>Edit Code or Text</dd></div><div><dt>A / B</dt><dd>Insert Text above / below</dd></div><div><dt>D, D</dt><dd>Delete selected cell</dd></div></dl></section>
-        <section><h3>Editing</h3><dl><div><dt>Esc</dt><dd>Return to command mode</dd></div><div><dt>Tab</dt><dd>Indent Code</dd></div></dl></section>
-        <section><h3>Saving</h3><dl><div><dt>Ctrl+Enter</dt><dd>Save cell</dd></div><div><dt>Shift+Enter</dt><dd>Save cell, select next</dd></div><div><dt>Ctrl+S</dt><dd>Save notebook</dd></div></dl><p>Saving does not run code.</p></section>
-      </div></PopoverContent></Popover><span className="notebook-save-status" role="status" title={saveStatus}><Save size={16} aria-hidden="true"/><span className="sr-only">{saveStatus}</span></span><span className="notebook-runtime" title="Code execution is not available">No runtime</span></div></div>
+      <header className="notebook-editor-toolbar" aria-label="Notebook controls">
+        <div className="notebook-toolbar-inner">
+          <div className="notebook-toolbar-identity">
+            <Button variant="ghost" size="small" disabled={busy} onClick={() => void action(async () => {
+              await saveNotebook();
+              setNotebook(null);
+              setSelectedId(null);
+              setEditingId(null);
+              await refresh();
+            })}>Notebooks</Button>
+            <span className="notebook-path-divider" aria-hidden="true">/</span>
+            <div className="notebook-title">
+              <label htmlFor="notebook-title" className="sr-only">Notebook title</label>
+              <Input id="notebook-title" maxLength={120} disabled={busy} value={title} onChange={event => setTitle(event.target.value)}/>
+            </div>
+          </div>
+          <div className="notebook-toolbar-actions">
+            <span className="notebook-save-status" role="status">{saveStatus}</span>
+            <Button variant="ghost" size="small" disabled={busy || !dirty} onClick={() => void action(saveNotebook)}>Save</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger disabled={busy} render={<Button variant="secondary" size="small" />}>
+                <Plus aria-hidden="true"/> Add cell
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('code'))}>Add Code cell</DropdownMenuItem>
+                <DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('markdown'))}>Add Text cell</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Popover>
+              <PopoverTrigger render={<Button variant="icon" aria-label="More notebook options" title="More notebook options" />}>
+                <Ellipsis aria-hidden="true"/>
+              </PopoverTrigger>
+              <PopoverContent>
+                <PopoverTitle className="sr-only">Notebook shortcuts and information</PopoverTitle>
+                <div className="notebook-shortcuts">
+                  <section><h3>Command mode</h3><dl><div><dt>↑ / ↓</dt><dd>Select cell</dd></div><div><dt>Enter</dt><dd>Edit Code or Text</dd></div><div><dt>A / B</dt><dd>Insert Text above / below</dd></div><div><dt>D, D</dt><dd>Delete selected cell</dd></div></dl></section>
+                  <section><h3>Editing</h3><dl><div><dt>Esc</dt><dd>Return to command mode</dd></div><div><dt>Tab</dt><dd>Indent Code</dd></div></dl></section>
+                  <section><h3>Saving</h3><dl><div><dt>Ctrl+Enter</dt><dd>Save cell</dd></div><div><dt>Shift+Enter</dt><dd>Save cell, select next</dd></div><div><dt>Ctrl+S</dt><dd>Save notebook</dd></div></dl></section>
+                  <p>Code execution is unavailable.</p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+      </header>
       <div className="notebook-blocks">{notebook.blocks.map((block, index) => {
         const draft = drafts[block.id] ?? block.content; const language = languages[block.id] ?? block.language;
         const changed = draft !== block.content || language !== block.language; const selected = selectedId === block.id; const editing = editingId === block.id;
