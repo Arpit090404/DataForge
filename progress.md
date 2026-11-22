@@ -3,13 +3,25 @@
 **Updated:** 2026-11-22
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook web preview with Result evidence (2026-11-22)
+
+The existing Vite Notebook preview now includes a synthetic saved grouped execution, a Result cell with 15 replayed rows, and in-memory handlers for loading, adding and saving cells. The tab title identifies its synthetic data. Opened the Editor in the shared web preview at 1280 × 800, loaded the Result, and left it visible. Browser checks found numeric headers right-aligned, the + Cell menu populated with Code and Text, and no page-level horizontal overflow at 900 × 600. The 900 px header occupied two rows, and the Result stayed within its local table container. This fixture does not persist to a real project or verify native WebView2 behavior.
+
+**Verification limit:** T3 preview screenshot capture twice reported that the browser was not producing screenshot frames; the alternate computer browser host was unavailable. DOM and geometry inspection succeeded in the visible preview tab. The dev server required elevated filesystem access to read Vite's config; it is running on port 1420 for this preview.
+
+## Notebook top toolbar actions (2026-11-22)
+
+The sticky Editor header now exposes the existing actions as a compact shared + Cell menu (append Code or Text) and a shared secondary/small Save Button. Save is disabled while busy or when there are no changes; Shortcuts, live save status, and factual No runtime remain alongside them. The Result refinements below remain in place. The Editor layout and consolidated redesign specs now describe this supported-action toolbar; no Run or compute control was added.
+
+**Focused verification:** In `apps/desktop`, `tsc --noEmit`, `node tests/notebook-keys.cjs`, `node tests/notebook-provenance.cjs`, `node tests/design-system.cjs`, and `node tests/form-controls.cjs` passed. Impeccable `detect --json --changed` returned `[]` and `git diff --check` passed. `npm.cmd run build` passed its design, form, and TypeScript gates, then Vite could not load `vite.config.ts` because the sandbox denied a parent-directory read. The new menu and Save interaction have not been inspected in a rendered browser or native WebView2; narrow wrapping, menu focus return, and persistence still need native verification.
+
 ## Notebook Result cell refinement and toolbar review (2026-11-22)
 
 Result headers now put the saved operation and registered source first, the real input summary second, and recorded row count/time in quieter metadata. Load and Retry use the shared secondary/small Button. Returned `integer` and `decimal` columns align their headers and values right; full cell values remain in the DOM and native title while the shared table keeps its 8/12 px padding, bounded scroll, and compact line height. The Result inset now uses the documented panel spacing. Replay scope, failure, zero-row, and exact execution details remain as before.
 
 **Focused verification:** Desktop `tsc --noEmit`, Notebook provenance, design-token and form-control tests passed; Impeccable `detect --json --changed` returned `[]`; `git diff --check` passed. This pass was not inspected in a rendered browser or native WebView2, so visual density, narrow-width wrapping, actual replay, and native title behavior remain unverified. No full build or test suite ran.
 
-**Next toolbar implementation task (proposal only):** The current sticky header has Back, editable title, Shortcuts, icon-only save status, and truthful No runtime. Reuse the existing `insert` and `saveNotebook` handlers to add one compact `+ Cell` menu (Code/Text, appending a cell) and one explicit Save Button, then keep Shortcuts, save status and No runtime as secondary items. Use shared Button/DropdownMenu primitives, preserve keyboard order and the two-row narrow layout, and verify save, insertion, disabled/busy, focus return and long-title behavior. Update `spec/NOTEBOOK_EDITOR_LAYOUT.md` and `spec/NOTEBOOK_REDESIGN_SPEC.md` first: their current header contract intentionally removed + Cell and Save. No toolbar implementation or spec change was made in this pass.
+The subsequent toolbar task above implements the proposal recorded in this pass.
 
 ## Notebook Markdown cell refinement (2026-11-22)
 
