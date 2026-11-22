@@ -22,4 +22,7 @@ assert.ok(!unsafe.includes('<img'));
 assert.ok(!unsafe.includes('href='));
 assert.ok(render('[email](mailto:test@example.com)').includes('href="mailto:test@example.com"'));
 assert.ok(render('Intro\n```sql\nSELECT <name>\n```').includes('<pre><code>SELECT &lt;name&gt;</code></pre>'));
+const nested = render('- parent\n  3. child\n     - **grandchild**\n  4. sibling\n- next\n\nAfter the list.');
+assert.ok(nested.includes('<ul><li>parent<ol start="3"><li>child<ul><li><strong>grandchild</strong></li></ul></li><li>sibling</li></ol></li><li>next</li></ul><p>After the list.</p>'));
+assert.ok(render('1. parent\n\t- tab child\n2. sibling').includes('<ol><li>parent<ul><li>tab child</li></ul></li><li>sibling</li></ol>'));
 console.log('Markdown rendering checks passed.');

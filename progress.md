@@ -3,6 +3,12 @@
 **Updated:** 2026-11-20
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook Markdown cell refinement (2026-11-22)
+
+Markdown now renders nested ordered and unordered lists and uses the 30/20/13 px heading roles. Preview and the shared editor align their padding, prose type and reading measure. Code opens for editing on one click and shows an external `[*]` while editing and `[ ]` in preview. Code execution is unavailable, so no execution number is displayed.
+
+Inspected the browser preview at 900 × 600 and 1280 × 800 with mixed nested lists, all three heading sizes and the Code editing prompt. The browser fixture does not implement `update_block`, so it could not verify persistence. Native WebView2 was not verified. Focused Markdown, keyboard, design token, form control and TypeScript checks passed.
+
 ## Notebook Code cell visual refinement (2026-11-22)
 
 Code preview and editor share the same source padding, type and wrapping. Code and Text cell frames align on the same edges, with Markdown preview prose still capped at 720 px. The Code frame uses the 2 px focus-ring token for keyboard selection and editor focus. A pending cell focus no longer takes focus back from the editor after double-click. The external `[ ]` prompt and hover/focus insertion controls remain in place.
