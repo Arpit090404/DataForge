@@ -258,6 +258,8 @@
 .notebook-unavailable [role=status]{color:var(--color-warning)}
 .notebook-add{padding:var(--space-3) 0 var(--space-page);border-top:1px solid var(--color-hover)}
 .notebook-add .ui-select{flex:1;min-width:0}
+.notebook-count{padding-bottom:var(--space-3)}
+.notebook-count p{flex-basis:100%;margin:0}
 .notebook-execution-choice-details{flex-basis:100%;color:var(--color-text-muted);font-size:var(--font-size-meta)}
 .notebook-execution-choice-details pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .notebook-result-meta span{overflow-wrap:anywhere}
@@ -269,6 +271,7 @@
 .notebook-output .data-table th,.notebook-output .data-table td{line-height:1.35}
 .notebook-output .data-table th small{margin-top:0}
 .notebook-output .data-table .notebook-number{text-align:right;font-variant-numeric:tabular-nums}
+.notebook-output .data-table th.notebook-number>span{margin-inline-start:auto}
 .notebook-empty-hint{padding:54px 0 48px}
 .notebook-empty-hint p{margin:0 0 14px}
 .notebook-empty-hint>div{display:flex;justify-content:center;gap:8px}

@@ -319,14 +319,18 @@ fn read_result(conn: &DuckConnection, request: &AnalyticsRequest, columns: &[Col
     Ok((output,rows,has_more))
 }
 
+#[cfg(test)]
 pub(super) fn run_analytics_inner(project: &Path, dataset_id: &str, request: AnalyticsRequest, control: &AnalyticsControl) -> Result<AnalyticsResult> {
+    run_analytics_with_id(project, dataset_id, request, control, uuid::Uuid::new_v4().to_string())
+}
+
+pub(super) fn run_analytics_with_id(project: &Path, dataset_id: &str, request: AnalyticsRequest, control: &AnalyticsControl, execution_id: String) -> Result<AnalyticsResult> {
     validate_request(&request)?;
     let metadata = db(project)?;
     let dataset = list_datasets_inner(&metadata)?.into_iter().find(|d| d.id == dataset_id)
         .ok_or_else(|| error("dataset_missing", "This dataset is not registered in the active project."))?;
     if dataset.status != "ready" { return Err(error("file_changed", "The source is missing or changed. Review it before running analytics.")); }
     if dataset.size_bytes > MAX_SOURCE_BYTES { return Err(error("dataset_limit", "This CSV exceeds the 64 MB analytical limit. Its preview remains available.")); }
-    let execution_id = uuid::Uuid::new_v4().to_string();
     let (mut guard, cancelled, timed_out) = control.start(&execution_id)?;
     let deadline = Instant::now() + QUERY_DEADLINE;
     let project_id: String = metadata.query_row("SELECT id FROM project LIMIT 1", [], |r| r.get(0)).map_err(|_| analytics_error())?;
@@ -553,6 +557,35 @@ mod tests {
             sort:vec![],group_by:vec![],aggregations:vec![],limit:None,offset:None},&control).is_err());
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn notebook_count_keeps_execution_identity_after_reopen() {
+        let root = std::env::temp_dir().join(format!("dataforge-count-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let project = create_project_inner("Study", root.to_str().unwrap()).unwrap();
+        let path = Path::new(&project.project.path);
+        let source = root.join("sample.csv");
+        fs::write(&source, "Value\nA\nB\nC\n").unwrap();
+        let dataset = register_csv_inner(path, source.to_str().unwrap()).unwrap();
+        let control = AnalyticsControl::default();
+        let id = uuid::Uuid::new_v4().to_string();
+        let request = serde_json::from_value(serde_json::json!({
+            "kind": "group", "group_by": [], "aggregations": [{"op": "count", "alias": "row_count"}], "limit": 1
+        })).unwrap();
+        let result = run_analytics_with_id(path, &dataset.id, request, &control, id.clone()).unwrap();
+        assert_eq!(result.execution.id, id);
+        assert_eq!(result.rows, vec![vec![Some("3".into())]]);
+        assert!(!result.has_more);
+        let notebook = serde_json::to_value(crate::notebook::create_notebook_inner(path, "Counts").unwrap()).unwrap();
+        let notebook_id = notebook["id"].as_str().unwrap();
+        crate::notebook::add_block_inner(path, notebook_id, "result", "", Some(&id), None, None, None).unwrap();
+        let reopened = serde_json::to_value(crate::notebook::get_notebook_inner(path, notebook_id).unwrap()).unwrap();
+        assert_eq!(reopened["blocks"][0]["execution_id"].as_str(), Some(id.as_str()));
+        let replay = get_execution_result_inner(path, &id, &control).unwrap();
+        assert_eq!(replay.rows, result.rows);
+        assert_eq!(replay.execution.source_fingerprint, result.execution.source_fingerprint);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn numeric_group_sort_empty_csv_and_export_escaping() {
         let root=std::env::temp_dir().join(format!("dataforge-analytics-test-{}",uuid::Uuid::new_v4())); fs::create_dir(&root).unwrap();
