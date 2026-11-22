@@ -20,7 +20,7 @@ type Result = { execution: Execution; columns: { name: string; data_type: string
 type Block = { id: string; notebook_id: string; position: number; kind: 'markdown' | 'code' | 'result'; content: string; language: 'python' | 'sql' | null; execution_id: string | null; created_at: string; updated_at: string };
 type Notebook = { id: string; title: string; created_at: string; updated_at: string; blocks: Block[] };
 type Summary = { id: string; title: string; updated_at: string; block_count: number };
-type Source = { id: string; name: string };
+type Source = { id: string; name: string; status: string };
 const numericColumnType = /^(?:integer|decimal)$/;
 
 function InsertionSlot({ disabled, insert, location }: { disabled: boolean; insert: (kind: 'code' | 'markdown') => void; location: string }) {
@@ -33,8 +33,8 @@ function message(error: unknown) {
   return 'The notebook operation could not be completed.';
 }
 
-function ResultBlock({ executionId, execution: historyExecution, sources }: { executionId: string; execution?: Execution; sources: Source[] }) {
-  const [result, setResult] = useState<Result | null>(null);
+function ResultBlock({ executionId, execution: historyExecution, sources, initialResult }: { executionId: string; execution?: Execution; sources: Source[]; initialResult?: Result }) {
+  const [result, setResult] = useState<Result | null>(initialResult ?? null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -48,9 +48,9 @@ function ResultBlock({ executionId, execution: historyExecution, sources }: { ex
   const description = execution && describeNotebookExecution(execution);
   return <div className="notebook-output">
     <div className="notebook-result-meta"><div className="notebook-result-identity"><strong>{description?.operation ?? 'Saved execution'}</strong><span>{execution ? `Registered source: ${registeredSourceName(execution, sources)}` : 'Source unavailable'}</span></div>{description && <span className="notebook-result-summary">{description.summary}</span>}<small>{execution?.result_row_count ?? '—'} recorded rows{execution && <> · {new Date(execution.started_at).toLocaleString()}</>}</small></div>
-    {!attempt || error ? <div className="notebook-unavailable">{error && <p role="status">Result unavailable: {error}</p>}{!error && <p>Load replays the saved operation against its pinned representation.</p>}<Button variant="secondary" size="small" onClick={() => setAttempt(value => value + 1)}>{error ? 'Retry result' : 'Load result'}</Button></div>
+    {(!result && !attempt) || error ? <div className="notebook-unavailable">{error && <p role="status">Result unavailable: {error}</p>}{!error && <p>Load replays the saved operation against its pinned representation.</p>}<Button variant="secondary" size="small" onClick={() => setAttempt(value => value + 1)}>{error ? 'Retry result' : 'Load result'}</Button></div>
       : !result ? <p className="notebook-muted">Replaying saved execution…</p>
-        : <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined} title={column.name}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j} className={numericColumnType.test(result.columns[j]?.data_type ?? '') ? 'notebook-number' : undefined} title={value ?? undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div><p className="notebook-muted">Showing {result.rows.length} rows{result.has_more ? ' · more rows available in the original operation' : ''}. Replayed from the pinned representation, not a saved snapshot. Without a saved sort, row order may vary.</p></>}
+        : <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined} title={column.name}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j} className={numericColumnType.test(result.columns[j]?.data_type ?? '') ? 'notebook-number' : undefined} title={value ?? undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div><p className="notebook-muted">Showing {result.rows.length} rows{result.has_more ? ' · more rows available in the original operation' : ''}. {attempt ? 'Replayed from the pinned representation, not a saved snapshot. Without a saved sort, row order may vary.' : 'From the latest execution. Reopening this notebook loads the result by replay.'}</p></>}
     <details><summary>Execution details</summary><small>Execution ID: {executionId}{execution && <><br/>Dataset ID: {execution.dataset_id}<br/>Source fingerprint: {execution.source_fingerprint}<br/>Recorded status: {execution.status}<br/>Engine: {execution.duckdb_version ? `DuckDB ${execution.duckdb_version}` : 'Unavailable'}</>}</small>{execution && <><div>Original parameters</div><pre>{execution.parameters}</pre></>}</details>
   </div>;
 }
@@ -70,6 +70,12 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [executionId, setExecutionId] = useState('');
+  const [countSourceId, setCountSourceId] = useState('');
+  const [countRunId, setCountRunId] = useState<string | null>(null);
+  const [countCanCancel, setCountCanCancel] = useState(false);
+  const [countNotice, setCountNotice] = useState('');
+  const [countError, setCountError] = useState('');
+  const [countResult, setCountResult] = useState<Result | null>(null);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [savingNotebook, setSavingNotebook] = useState(false);
@@ -129,6 +135,53 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   async function action(work: () => Promise<void>) {
     setBusy(true); setError('');
     try { await work(); } catch (e) { setError(message(e)); } finally { setBusy(false); }
+  }
+  useEffect(() => {
+    if (!countRunId) return;
+    let current = true;
+    async function poll() {
+      try {
+        const id = await invoke<string | null>('active_execution');
+        if (current) setCountCanCancel(id === countRunId);
+      } catch { /* The run reports its own error. */ }
+    }
+    void poll();
+    const timer = window.setInterval(() => void poll(), 250);
+    return () => { current = false; window.clearInterval(timer); };
+  }, [countRunId]);
+
+  async function countRows() {
+    const id = crypto.randomUUID();
+    setCountRunId(id);
+    setCountCanCancel(false);
+    setCountNotice('');
+    setCountError('');
+    try {
+      const result = await invoke<Result>('run_analytics', {
+        datasetId: countSourceId,
+        executionId: id,
+        request: { kind: 'group', group_by: [], aggregations: [{ op: 'count', alias: 'row_count' }], limit: 1 },
+      });
+      setCountResult(result);
+      setExecutions(current => [result.execution, ...current.filter(item => item.id !== result.execution.id)]);
+      setExecutionId(result.execution.id);
+      setCountNotice('Count saved. Add the selected result to insert it into this notebook.');
+    } catch (error) {
+      setCountError(message(error));
+    } finally {
+      setCountRunId(null);
+      setCountCanCancel(false);
+    }
+  }
+
+  async function cancelCount() {
+    if (!countRunId || !countCanCancel) return;
+    setCountNotice('Cancellation requested.');
+    try { await invoke('cancel_execution', { executionId: countRunId }); }
+    catch (error) {
+      setCountNotice('');
+      setCountError(message(error));
+    }
   }
   async function load(id: string) { const next = await invoke<Notebook>('get_notebook', { id }); setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null); if (next.blocks[0]) focusCell(next.blocks[0].id); }
   async function reload(id = notebook?.id) { if (id) { setNotebook(await invoke<Notebook>('get_notebook', { id })); await refresh(); } }
@@ -258,8 +311,11 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       <header className="notebook-editor-toolbar" aria-label="Notebook controls">
         <div className="notebook-toolbar-inner">
           <div className="notebook-toolbar-identity">
-            <Button variant="ghost" size="small" disabled={busy} onClick={() => void action(async () => {
+            <Button variant="ghost" size="small" disabled={busy || !!countRunId} onClick={() => void action(async () => {
               await saveNotebook();
+              setCountResult(null);
+              setCountNotice('');
+              setCountError('');
               setNotebook(null);
               setSelectedId(null);
               setEditingId(null);
@@ -319,12 +375,29 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
               <DropdownMenuSeparator />
               <DropdownMenuItem destructive disabled={busy} onClick={() => setPendingDelete({ kind: 'cell', id: block.id })}>Delete</DropdownMenuItem>
             </DropdownMenuContent></DropdownMenu></div>
-          {block.kind === 'result' ? block.execution_id ? <ResultBlock executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)} sources={sources}/> : <p>Execution reference unavailable.</p>
+          {block.kind === 'result' ? block.execution_id ? <ResultBlock executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)} sources={sources} initialResult={countResult?.execution.id === block.execution_id ? countResult : undefined}/> : <p>Execution reference unavailable.</p>
             : editing ? <>{block.kind === 'code' && <span className="notebook-code-prompt" aria-label="Editing code; execution unavailable">[*]</span>}<div className={block.kind === 'code' ? 'notebook-code-frame' : 'notebook-text-frame'}><Textarea ref={editorRef} rows={Math.max(3, draft.split('\n').length + 1)} className={block.kind === 'code' ? 'notebook-code-editor' : ''} aria-label={`${label} cell ${index + 1} editor`} value={draft} readOnly={busy} spellCheck={block.kind === 'markdown'} onKeyDown={event => { if (block.kind !== 'code' || event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return; event.preventDefault(); const [value, start, end] = indentCode(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd); setDrafts(current => ({ ...current, [block.id]: value })); cursor.current[block.id] = [start, end]; requestAnimationFrame(() => editorRef.current?.setSelectionRange(start, end)); }} onSelect={event => { cursor.current[block.id] = [event.currentTarget.selectionStart, event.currentTarget.selectionEnd]; }} onChange={event => { const value = event.target.value; setDrafts(current => { const next = { ...current }; if (value === block.content) delete next[block.id]; else next[block.id] = value; return next; }); }}/>{block.kind === 'code' && <div className="notebook-code-output">No output · execution unavailable</div>}</div></>
               : block.kind === 'markdown' ? <div className="notebook-preview" onDoubleClick={() => setEditingId(block.id)}><Markdown text={draft}/></div>
                 : <><span className="notebook-code-prompt" aria-label="Code not run">[ ]</span><div className="notebook-code-preview"><div className="notebook-code-source"><pre>{draft || 'Press Enter to write code.'}</pre></div><div className="notebook-code-output">No output · execution unavailable</div></div></>}
         </section></Fragment>;
       })}<InsertionSlot disabled={busy} location={notebook.blocks.length ? `after cell ${notebook.blocks.length}` : 'in the empty notebook'} insert={kind => void action(() => insert(kind, notebook.blocks.at(-1)?.id, notebook.blocks.length ? 'after' : undefined))}/>{!notebook.blocks.length && <div className="notebook-empty-hint"><p>Add a cell to begin this notebook.</p><div><Button disabled={busy} onClick={() => void action(() => insert('code'))}>+ Code</Button><Button disabled={busy} onClick={() => void action(() => insert('markdown'))}>+ Text</Button></div></div>}</div>
+      <form className="notebook-add notebook-count" onSubmit={event => {
+        event.preventDefault();
+        if (!countRunId && sources.some(source => source.id === countSourceId && source.status === 'ready')) {
+          void countRows();
+        }
+      }}>
+        <label htmlFor="notebook-count-source">Count rows in</label>
+        <Select id="notebook-count-source" value={countSourceId} disabled={!!countRunId} onChange={event => setCountSourceId(event.target.value)}>
+          <option value="">Choose a registered source</option>
+          {sources.map(source => <option key={source.id} value={source.id} disabled={source.status !== 'ready'}>{source.name}</option>)}
+        </Select>
+        <Button type="submit" size="small" loading={!!countRunId} disabled={!sources.some(source => source.id === countSourceId && source.status === 'ready')}>Count rows</Button>
+        {countRunId && <Button type="button" size="small" variant="ghost" disabled={!countCanCancel || !!countNotice} onClick={() => void cancelCount()}>Cancel</Button>}
+        <p className="notebook-muted">Runs a built-in analysis. Python and SQL cells remain editable source.</p>
+        {(countRunId || countNotice) && <p className="notebook-muted" role="status">{countNotice || 'Counting rows?'}</p>}
+        {countError && <p className="inline-error" role="alert">{countError}</p>}
+      </form>
       {!!executions.length && <div className="notebook-add"><label htmlFor="execution-select">Saved execution</label><Select id="execution-select" value={executionId} onChange={e => setExecutionId(e.target.value)}><option value="">Choose an execution</option>{executions.map(item => <option key={item.id} value={item.id}>{notebookExecutionLabel(item, sources)}</option>)}</Select><Button disabled={busy || !succeeded} onClick={() => void action(async () => { const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId }); await reload(); setSelectedId(block.id); focusCell(block.id); })}>Add result</Button>{succeeded && <details className="notebook-execution-choice-details"><summary>Selected execution details</summary><small>Execution ID: {succeeded.id}<br/>Dataset ID: {succeeded.dataset_id}<br/>Source fingerprint: {succeeded.source_fingerprint}<br/>Recorded status: {succeeded.status}</small><div>Original parameters</div><pre>{succeeded.parameters}</pre></details>}</div>}
     </>}
     <ConfirmationDialog open={pendingDelete !== null} title={pendingDelete?.kind === 'notebook' ? 'Delete notebook?' : 'Delete cell?'} description={pendingDelete?.kind === 'notebook' ? `Delete “${pendingDelete.title}” and all its cells? This cannot be undone.` : 'Delete this cell? This cannot be undone.'} confirmLabel="Delete" destructive onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete}/>

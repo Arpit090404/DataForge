@@ -334,11 +334,17 @@ async fn inspect_csv(dataset_id: String, limit: usize, state: State<'_, ActivePr
     tauri::async_runtime::spawn_blocking(move || inspect_csv_inner(&project, &dataset_id, limit)).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
-async fn run_analytics(dataset_id: String, request: analytics::AnalyticsRequest,
+async fn run_analytics(dataset_id: String, request: analytics::AnalyticsRequest, execution_id: Option<String>,
     state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<analytics::AnalyticsResult> {
     let project = active(&state)?;
     let control = control.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || analytics::run_analytics_inner(&project, &dataset_id, request, &control))
+    let execution_id = match execution_id {
+        Some(id) => uuid::Uuid::parse_str(&id).ok()
+            .filter(|uuid| uuid.get_version_num() == 4 && uuid.to_string() == id)
+            .map(|_| id).ok_or_else(|| error("invalid_execution_id", "Expected a canonical version 4 execution ID."))?,
+        None => uuid::Uuid::new_v4().to_string(),
+    };
+    tauri::async_runtime::spawn_blocking(move || analytics::run_analytics_with_id(&project, &dataset_id, request, &control, execution_id))
         .await.map_err(|_| storage_error())?
 }
 #[tauri::command]

@@ -25,6 +25,7 @@ const previewRows = Array.from({ length: 15 }, (_, index) => [
   String(184320 - index * 7631),
   String(782 - index * 29),
 ]);
+const previewCounts = new Map<string, { execution: typeof previewExecution; columns: { name: string; data_type: string }[]; rows: string[][]; total_rows: number; has_more: boolean }>();
 function notebookData(id: string) {
   const note = notebooks.find(item => item.id === id);
   return note && { ...note, created_at: note.updated_at, blocks: [...(blocksByNotebook.get(id) ?? [])] };
@@ -33,8 +34,16 @@ function notebookData(id: string) {
 (window as any).__TAURI_INTERNALS__ = {
   invoke: async (command: string, args: Record<string, string | null | undefined> = {}) => {
     if (command === 'list_notebooks') return notebooks;
-    if (command === 'list_executions') return [previewExecution];
-    if (command === 'get_execution_result') return { execution: previewExecution, columns: [{ name: 'region', data_type: 'text' }, { name: 'segment', data_type: 'text' }, { name: 'revenue', data_type: 'decimal' }, { name: 'orders', data_type: 'integer' }], rows: previewRows, total_rows: 8523, has_more: true };
+    if (command === 'list_executions') return [...Array.from(previewCounts.values(), result => result.execution), previewExecution];
+    if (command === 'run_analytics') {
+      const id = args.executionId ?? '';
+      const execution = { ...previewExecution, id, parameters: JSON.stringify(args.request), result_row_count: 1 };
+      const result = { execution, columns: [{ name: 'row_count', data_type: 'integer' }], rows: [['8523']], total_rows: 1, has_more: false };
+      previewCounts.set(id, result);
+      return result;
+    }
+    if (command === 'active_execution') return null;
+    if (command === 'get_execution_result') return previewCounts.get(args.executionId ?? '') ?? { execution: previewExecution, columns: [{ name: 'region', data_type: 'text' }, { name: 'segment', data_type: 'text' }, { name: 'revenue', data_type: 'decimal' }, { name: 'orders', data_type: 'integer' }], rows: previewRows, total_rows: 8523, has_more: true };
     if (command === 'create_notebook') {
       const note = { id: String(Date.now()), title: args.title, updated_at: new Date().toISOString(), block_count: 0 };
       notebooks = [note, ...notebooks];
@@ -78,7 +87,7 @@ function Preview() {
       <div className="threads-section" aria-hidden={notebookMode} inert={notebookMode}><div className="section-heading"><span>THREADS</span><button className="section-actions" disabled aria-label="Threads are not available yet"><Plus size={16}/></button></div><div className="section-empty"><MessageSquare size={16}/><span>No threads yet</span><small>Agent investigations are coming later.</small></div></div>
       <div className="sources-section"><div className="section-heading"><span>SOURCES</span><div className="section-actions"><button disabled aria-label="Refresh source status"><RefreshCw size={14}/></button><button disabled aria-label="Register CSV source"><Plus size={16}/></button></div></div><div className="source-list"><button className="source-item" onClick={() => {}}><FileSpreadsheet size={16}/><span className="source-copy"><span className="source-name">sales.csv</span><span className="source-meta">CSV · 42 KB</span></span><span className="status-dot" aria-hidden="true" /></button></div><div className="sources-footer"><button className="add-source" disabled><FilePlus2 size={16}/> Add CSV source</button></div></div>
       <div className="sidebar-footer"><span className="local-dot"/> Local workspace <span className="version">v0.1</span></div>
-    </aside><main className="main-workspace"><div className="workspace-content">{notebookMode ? <div className="notebook-surface"><NotebookWorkspace active projectName="Preview project" sources={[{ id: 'preview-source', name: 'sales.csv' }]} onDirtyChange={() => {}} /></div> : <div className="mode-empty"><Database size={28}/><h1>Select a source to continue.</h1></div>}</div></main></div>
+    </aside><main className="main-workspace"><div className="workspace-content">{notebookMode ? <div className="notebook-surface"><NotebookWorkspace active projectName="Preview project" sources={[{ id: 'preview-source', name: 'sales.csv', status: 'ready' }]} onDirtyChange={() => {}} /></div> : <div className="mode-empty"><Database size={28}/><h1>Select a source to continue.</h1></div>}</div></main></div>
   </div>;
 }
 

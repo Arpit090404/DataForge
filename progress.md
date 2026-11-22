@@ -3,6 +3,12 @@
 **Updated:** 2026-11-22
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook Count rows (2026-11-23)
+
+From an open notebook, select a ready registered source and choose Count rows. The existing Rust/DuckDB command records a typed count with a one-row result limit. Success selects its saved execution in the existing picker. Add result inserts a Result cell with the returned data, and Load result after reopening replays the same execution from its pinned representation. Cancel targets the submitted execution ID once the backend reports it active. Code cells retain their existing authoring behavior.
+
+Focused TypeScript, Notebook keyboard/Home/provenance, analysis-result, design-token and form-control checks passed. `cargo test --locked --offline --lib analytics::tests` passed eight tests, including count, persisted Result identity, replay and backend cancellation. The synthetic browser preview exercised count and insertion and displayed the result at 900 × 600. Native WebView2 and cancellation during a live Notebook run were not exercised.
+
 ## Notebook UI integration polish (2026-11-22)
 
 Aligned Markdown, Code, Result and insertion boundaries on one prompt gutter. Result tables now use the full frame width, with token insets for provenance, compact load guidance and a consistent footer/details hierarchy. Cell menus use the shared icon Button and remain visible while open. Selection scrolling accounts for the sticky toolbar. Removed superseded Result and menu skins.
