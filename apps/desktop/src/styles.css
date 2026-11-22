@@ -244,12 +244,20 @@
 .notebook-code-preview{padding:0}
 .notebook-code-preview pre{margin:0;font:inherit;color:var(--color-text);white-space:inherit}
 .notebook-code-output{border-top:1px solid var(--color-hover);padding:var(--space-2) var(--space-control-x);color:var(--color-text-muted);font-size:var(--font-size-meta);letter-spacing:.01em}
-.notebook-output{border-top:0;margin:0 14px 12px;padding:8px 0 0}
+.notebook-output{border-top:0;margin:0 var(--space-panel) var(--space-3);padding:var(--space-2) 0 0}
 .notebook-add{padding:14px 0 46px;border-top:1px solid var(--color-hover)}
 .notebook-add .ui-select{flex:1;min-width:0}
 .notebook-execution-choice-details{flex-basis:100%;color:var(--color-text-muted);font-size:var(--font-size-meta)}
 .notebook-execution-choice-details pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .notebook-result-meta span{overflow-wrap:anywhere}
+.notebook-result-meta{display:grid;gap:var(--space-1);align-items:start}
+.notebook-result-identity{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-3);align-items:baseline}
+.notebook-result-identity strong{font-size:var(--font-size-component);font-weight:var(--font-weight-semibold)}
+.notebook-result-summary{color:var(--color-text-secondary)}
+.notebook-output .table-scroll{margin-top:var(--space-3)}
+.notebook-output .data-table th,.notebook-output .data-table td{line-height:1.35}
+.notebook-output .data-table th small{margin-top:0}
+.notebook-output .data-table .notebook-number{text-align:right;font-variant-numeric:tabular-nums}
 .notebook-empty-hint{padding:54px 0 48px}
 .notebook-empty-hint p{margin:0 0 14px}
 .notebook-empty-hint>div{display:flex;justify-content:center;gap:8px}
