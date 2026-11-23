@@ -604,6 +604,32 @@ mod tests {
         assert_eq!(empty_count.rows, vec![vec![Some("0".into())]]);
         fs::remove_dir_all(&root).unwrap();
     }
+    #[test]
+    fn notebook_rows_and_group_rerun_keep_one_result_cell() {
+        let root=std::env::temp_dir().join(format!("dataforge-notebook-operations-{}",uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let project=create_project_inner("Study",root.to_str().unwrap()).unwrap();let path=Path::new(&project.project.path);
+        let source=root.join("sales.csv");fs::write(&source,"Region,Sales\nEast,10\nWest,20\nEast,30\n").unwrap();
+        let dataset=register_csv_inner(path,source.to_str().unwrap()).unwrap();let control=AnalyticsControl::default();
+        let rows:AnalyticsRequest=serde_json::from_value(serde_json::json!({"kind":"rows","filters":{"op":"and","conditions":[{"op":"eq","column":"Region","value":"East"}]},"sort":[{"column":"Sales","direction":"desc","nulls":"last"}],"limit":2,"offset":0})).unwrap();
+        let first=run_analytics_inner(path,&dataset.id,rows,&control).unwrap();
+        assert_eq!(first.rows.len(),2);assert_eq!(first.rows[0][1].as_deref(),Some("30"));
+        let note=serde_json::to_value(crate::notebook::create_notebook_inner(path,"Analysis").unwrap()).unwrap();
+        let note_id=note["id"].as_str().unwrap();
+        let block=serde_json::to_value(crate::notebook::add_block_inner(path,note_id,"result","",Some(&first.execution.id),None,None,None).unwrap()).unwrap();
+        let block_id=block["id"].as_str().unwrap();
+        let grouped:AnalyticsRequest=serde_json::from_value(serde_json::json!({"kind":"group","group_by":["Region"],"aggregations":[{"op":"sum","column":"Sales","alias":"total"},{"op":"count","alias":"row_count"}],"sort":[{"column":"total","direction":"desc","nulls":"last"}],"limit":2,"offset":0})).unwrap();
+        let second=run_analytics_inner(path,&dataset.id,grouped,&control).unwrap();
+        assert_eq!(second.rows.len(),2);assert_eq!(second.rows[0],vec![Some("East".into()),Some("40.0".into()),Some("2".into())]);
+        let updated=serde_json::to_value(crate::notebook::update_result_block_inner(path,block_id,&second.execution.id).unwrap()).unwrap();
+        assert_eq!(updated["id"],block["id"]);assert_eq!(updated["position"],block["position"]);
+        crate::open_project_inner(path.to_str().unwrap()).unwrap();
+        let reopened=serde_json::to_value(crate::notebook::get_notebook_inner(path,note_id).unwrap()).unwrap();
+        assert_eq!(reopened["blocks"].as_array().unwrap().len(),1);assert_eq!(reopened["blocks"][0]["execution_id"].as_str(),Some(second.execution.id.as_str()));
+        assert_eq!(get_execution_result_inner(path,&second.execution.id,&control).unwrap().rows,second.rows);
+        assert_eq!(list_executions_inner(path).unwrap().len(),2);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn numeric_group_sort_empty_csv_and_export_escaping() {

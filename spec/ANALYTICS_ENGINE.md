@@ -10,6 +10,8 @@ This slice caps source input at 64 MiB and 250,000 rows, an operation at 30 seco
 
 Notebook result blocks replay a successful execution's stored structured parameters against its pinned representation on demand using a read-only DuckDB connection and the same query bounds and concurrency control. Replay creates no execution or saved result snapshot. A missing or damaged representation, incompatible engine version, or invalid recorded operation produces an unavailable state; the original source need not remain available. Results may differ when the recorded operation did not specify a deterministic order.
 
+The Notebook can submit the existing typed row and group request kinds through the same backend command, using a subset of the source workspace's filter and page controls. A successful rerun may update an existing Result block's execution reference in a project-scoped transaction after verifying the new execution succeeded; it preserves the block ID and order. Execution records remain append-only. A failed or cancelled run does not retarget the block.
+
 ## Responsibilities
 File inspection/ingestion, schema inference, profiling, bounded DuckDB queries, trusted statistical routines, bounded result serialization, host-private artifact staging, execution telemetry, cancellation. Under proposed ADR 0009, the host owns DuckDB and artifact writes; the Python worker receives brokered input and returns bounded data. Arbitrary Python is deferred by proposed ADR 0008.
 

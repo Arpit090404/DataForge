@@ -13,6 +13,9 @@ import { Markdown } from './Markdown';
 import { decideDeletePress, decideNotebookKey, indentCode } from './notebookKeys';
 import { filterNotebooks, sortNotebooks } from './notebookHome';
 import { describeNotebookExecution, notebookExecutionLabel, registeredSourceName } from './notebookProvenance';
+import { NotebookAnalysisForm } from './NotebookAnalysisForm';
+import { buildNotebookRequest, configurationFromExecution, defaultConfiguration } from './notebookAnalysis';
+import type { Column, Configuration } from './notebookAnalysis';
 import { BookOpen, Ellipsis, Plus, Search } from 'lucide-react';
 
 type Execution = { id: string; dataset_id: string; operation_type: string; parameters: string; started_at: string; completed_at: string | null; status: string; result_row_count: number | null; error_summary: string | null; duckdb_version: string | null; source_fingerprint: string };
@@ -77,13 +80,18 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [executionId, setExecutionId] = useState('');
-  const [countSourceId, setCountSourceId] = useState('');
-  const [countRunId, setCountRunId] = useState<string | null>(null);
-  const pendingCount = useRef<string | null>(null);
-  const [countCanCancel, setCountCanCancel] = useState(false);
-  const [countNotice, setCountNotice] = useState('');
-  const [countError, setCountError] = useState('');
-  const [countResult, setCountResult] = useState<Result | null>(null);
+  const [analysisSourceId, setAnalysisSourceId] = useState('');
+  const [columns, setColumns] = useState<Column[]>([]);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaError, setSchemaError] = useState('');
+  const [configuration, setConfiguration] = useState<Configuration>(defaultConfiguration);
+  const [targetResultId, setTargetResultId] = useState<string | null>(null);
+  const [analysisRunId, setAnalysisRunId] = useState<string | null>(null);
+  const pendingAnalysis = useRef<string | null>(null);
+  const [analysisCanCancel, setAnalysisCanCancel] = useState(false);
+  const [analysisNotice, setAnalysisNotice] = useState('');
+  const [analysisError, setAnalysisError] = useState('');
+  const [analysisResult, setAnalysisResult] = useState<Result | null>(null);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [savingNotebook, setSavingNotebook] = useState(false);
@@ -145,62 +153,95 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     try { await work(); } catch (e) { setError(message(e)); } finally { setBusy(false); }
   }
   useEffect(() => {
-    if (!countRunId) return;
+    if (!analysisRunId) return;
     let current = true;
     async function poll() {
       try {
         const id = await invoke<string | null>('active_execution');
-        if (current) setCountCanCancel(id === countRunId);
+        if (current) setAnalysisCanCancel(id === analysisRunId);
       } catch { /* The run reports its own error. */ }
     }
     void poll();
     const timer = window.setInterval(() => void poll(), 250);
     return () => { current = false; window.clearInterval(timer); };
-  }, [countRunId]);
+  }, [analysisRunId]);
+  useEffect(() => {
+    if (!analysisSourceId || !sources.some(source => source.id === analysisSourceId && source.status === 'ready')) {
+      setColumns([]); setSchemaError(''); setSchemaLoading(false); return;
+    }
+    let current = true;
+    setColumns([]); setSchemaError(''); setSchemaLoading(true);
+    invoke<{ columns: Column[] }>('inspect_csv', { datasetId: analysisSourceId, limit: 1 })
+      .then(value => { if (current) setColumns(value.columns); })
+      .catch(error => { if (current) setSchemaError(message(error)); })
+      .finally(() => { if (current) setSchemaLoading(false); });
+    return () => { current = false; };
+  }, [analysisSourceId, sources]);
 
-  async function countRows() {
-    if (pendingCount.current) return;
+  function editResult(block: Block, execution: Execution) {
+    const saved = configurationFromExecution(execution.parameters);
+    if (!saved) { setAnalysisError('This saved configuration cannot be edited here. Its result remains available.'); return; }
+    setTargetResultId(block.id);
+    setAnalysisSourceId(execution.dataset_id);
+    setConfiguration(saved);
+    setAnalysisError(''); setAnalysisNotice('Editing this result cell. Run to replace its execution reference.');
+    requestAnimationFrame(() => document.getElementById('notebook-analysis')?.scrollIntoView({ block: 'nearest' }));
+  }
+
+  async function runAnalysis() {
+    if (pendingAnalysis.current) return;
+    let request: ReturnType<typeof buildNotebookRequest>;
+    try { request = buildNotebookRequest(configuration, columns); }
+    catch (error) { setAnalysisError(message(error)); return; }
     const id = crypto.randomUUID();
-    pendingCount.current = id;
-    setCountRunId(id);
-    setCountCanCancel(false);
-    setCountNotice('');
-    setCountError('');
+    pendingAnalysis.current = id;
+    setAnalysisRunId(id);
+    setAnalysisCanCancel(false);
+    setAnalysisNotice('');
+    setAnalysisError('');
     setExecutionId('');
     try {
       const result = await invoke<Result>('run_analytics', {
-        datasetId: countSourceId,
+        datasetId: analysisSourceId,
         executionId: id,
-        request: { kind: 'group', group_by: [], aggregations: [{ op: 'count', alias: 'row_count' }], limit: 1 },
+        request,
       });
-      setCountResult(result);
+      setAnalysisResult(result);
       setExecutions(current => [result.execution, ...current.filter(item => item.id !== result.execution.id)]);
       setExecutionId(result.execution.id);
-      setCountNotice('Count saved. Add the selected result to insert it into this notebook.');
+      if (targetResultId) {
+        await invoke('update_result_block', { id: targetResultId, executionId: result.execution.id });
+        await reload(); setSelectedId(targetResultId);
+        setAnalysisNotice('Result cell updated. Earlier execution remains in project history.');
+      } else if (notebook) {
+        const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId: result.execution.id });
+        await reload(); setSelectedId(block.id); setTargetResultId(block.id);
+        setAnalysisNotice('Result added. Edit the parameters and run again to update this cell.');
+      }
     } catch (error) {
-      if (hasErrorCode(error, 'cancelled')) setCountNotice('Count cancelled.');
+      if (hasErrorCode(error, 'cancelled')) setAnalysisNotice('Operation cancelled.');
       else {
-        setCountNotice('');
-        setCountError(message(error));
+        setAnalysisNotice('');
+        setAnalysisError(message(error));
       }
     } finally {
-      pendingCount.current = null;
-      setCountRunId(null);
-      setCountCanCancel(false);
+      pendingAnalysis.current = null;
+      setAnalysisRunId(null);
+      setAnalysisCanCancel(false);
     }
   }
 
-  async function cancelCount() {
-    if (!countRunId || pendingCount.current !== countRunId || !countCanCancel) return;
-    setCountNotice('Cancellation requested.');
-    try { await invoke('cancel_execution', { executionId: countRunId }); }
+  async function cancelAnalysis() {
+    if (!analysisRunId || pendingAnalysis.current !== analysisRunId || !analysisCanCancel) return;
+    setAnalysisNotice('Cancellation requested.');
+    try { await invoke('cancel_execution', { executionId: analysisRunId }); }
     catch (error) {
-      if (pendingCount.current !== countRunId || hasErrorCode(error, 'execution_missing')) return;
-      setCountNotice('');
-      setCountError(message(error));
+      if (pendingAnalysis.current !== analysisRunId || hasErrorCode(error, 'execution_missing')) return;
+      setAnalysisNotice('');
+      setAnalysisError(message(error));
     }
   }
-  async function load(id: string) { const next = await invoke<Notebook>('get_notebook', { id }); setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null); if (next.blocks[0]) focusCell(next.blocks[0].id); }
+  async function load(id: string) { const next = await invoke<Notebook>('get_notebook', { id }); setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null); setTargetResultId(null); setAnalysisResult(null); setAnalysisSourceId(''); setConfiguration(defaultConfiguration()); setAnalysisNotice(''); setAnalysisError(''); if (next.blocks[0]) focusCell(next.blocks[0].id); }
   async function reload(id = notebook?.id) { if (id) { setNotebook(await invoke<Notebook>('get_notebook', { id })); await refresh(); } }
   function select(id: string) { setSelectedId(id); if (editingId && editingId !== id) setEditingId(null); clearDelete(); }
   function focusCell(id: string) {
@@ -252,6 +293,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     const index = notebook?.blocks.findIndex(block => block.id === id) ?? -1;
     const nextId = notebook?.blocks[index + 1]?.id ?? notebook?.blocks[index - 1]?.id ?? null;
     await invoke('delete_block', { id });
+    if (targetResultId === id) setTargetResultId(null);
     setDrafts(current => { const next = { ...current }; delete next[id]; return next; });
     setLanguages(current => { const next = { ...current }; delete next[id]; return next; });
     setSelectedId(nextId); setEditingId(null); clearDelete(); await reload(); if (nextId) focusCell(nextId);
@@ -305,14 +347,12 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     focusCell(id);
   }
   const succeeded = executions.find(item => item.id === executionId);
-  const countSourceReady = sources.some(source => source.id === countSourceId && source.status === 'ready');
-  const hasReadySource = sources.some(source => source.status === 'ready');
   const visibleNotebooks = sortNotebooks(filterNotebooks(notebooks, search), sort);
   const saveStatus = savingNotebook ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved';
   return <div className={`notebook-workspace ${notebook ? 'notebook-editor' : 'notebook-home'}`} onKeyDown={onKeyDown}>
     {error && notebook && <div className="inline-error" role="alert">{error}</div>}
     {!notebook ? <>
-      <div className="notebook-heading"><span className="eyebrow">{projectName ?? 'Current project'}</span><div className="notebook-heading-title"><h1>Notebooks</h1><Button variant="primary" size="small" disabled={busy || listStatus !== 'ready'} onClick={() => void action(async () => { await saveHomeRename(); const next = await invoke<Notebook>('create_notebook', { title: 'Untitled Notebook' }); setNotebook(next); setTitle(next.title); setSelectedId(null); setEditingId(null); await refresh(); })}><Plus size={16}/> New Notebook</Button></div><p>Keep notes, code, and saved analytical results together.</p></div>
+      <div className="notebook-heading"><span className="eyebrow">{projectName ?? 'Current project'}</span><div className="notebook-heading-title"><h1>Notebooks</h1><Button variant="primary" size="small" disabled={busy || listStatus !== 'ready'} onClick={() => void action(async () => { await saveHomeRename(); const next = await invoke<Notebook>('create_notebook', { title: 'Untitled Notebook' }); setNotebook(next); setTitle(next.title); setSelectedId(null); setEditingId(null); setTargetResultId(null); setAnalysisSourceId(''); setAnalysisResult(null); setConfiguration(defaultConfiguration()); await refresh(); })}><Plus size={16}/> New Notebook</Button></div><p>Keep notes, code, and saved analytical results together.</p></div>
       {error && <div className="inline-error" role="alert">{error}</div>}
       <div className="notebook-home-controls"><label className="notebook-search"><Search size={16}/><span className="sr-only">Search notebooks</span><Input disabled={listStatus !== 'ready'} value={search} onChange={event => setSearch(event.target.value)} placeholder="Search notebooks" /></label><label className="notebook-sort"><span className="sr-only">Sort notebooks</span><Select disabled={listStatus !== 'ready'} value={sort} onChange={event => setSort(event.target.value as 'modified' | 'name')}><option value="modified">Last modified</option><option value="name">Name</option></Select></label></div>
       <div className="notebook-home-list">{listStatus === 'loading' ? <div className="notebook-home-loading" role="status">Loading notebooks…</div>
@@ -330,11 +370,12 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       <header className="notebook-editor-toolbar" aria-label="Notebook controls">
         <div className="notebook-toolbar-inner">
           <div className="notebook-toolbar-identity">
-            <Button variant="ghost" size="small" disabled={busy || !!countRunId} onClick={() => void action(async () => {
+            <Button variant="ghost" size="small" disabled={busy || !!analysisRunId} onClick={() => void action(async () => {
               await saveNotebook();
-              setCountResult(null);
-              setCountNotice('');
-              setCountError('');
+              setAnalysisResult(null);
+              setAnalysisNotice('');
+              setAnalysisError('');
+              setTargetResultId(null);
               setNotebook(null);
               setSelectedId(null);
               setEditingId(null);
@@ -382,6 +423,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
         return <Fragment key={block.id}><InsertionSlot disabled={busy} location={`before cell ${index + 1}`} insert={kind => void action(() => insert(kind, block.id, 'before'))}/><section ref={element => { cellRefs.current[block.id] = element; }} tabIndex={selected ? 0 : -1} aria-label={`${label} cell ${index + 1}`} className={`notebook-block${block.kind === 'code' ? ' notebook-block--code' : ''}${selected ? ' selected' : ''}${editing ? ' editing' : ''}`} onClick={event => onCellClick(event, block.id)}>
           <div className={`notebook-block-toolbar${changed || deleteArmed === block.id ? ' has-state' : ''}`}>{(changed || deleteArmed === block.id) && <span className="notebook-cell-state">{changed && <em>Unsaved</em>}{deleteArmed === block.id && <em>Press D again to delete</em>}</span>}{block.kind === 'code' && <Select aria-label={`Language for code cell ${index + 1}`} value={language ?? 'python'} disabled={busy} onChange={event => { const value = event.target.value as 'python' | 'sql'; setLanguages(current => { const next = { ...current }; if (value === block.language) delete next[block.id]; else next[block.id] = value; return next; }); }}><option value="python">Python</option><option value="sql">SQL</option></Select>}
             {selected && !editing && block.kind !== 'result' && <Button variant="ghost" size="small" aria-label={`Edit ${label} cell ${index + 1}`} disabled={busy} onClick={event => { event.stopPropagation(); setEditingId(block.id); }}>Edit {label}</Button>}
+            {block.kind === 'result' && block.execution_id && executions.find(item => item.id === block.execution_id) && <Button variant="ghost" size="small" disabled={busy || !!analysisRunId} onClick={event => { event.stopPropagation(); editResult(block, executions.find(item => item.id === block.execution_id)!); }}>Edit analysis</Button>}
             <DropdownMenu><DropdownMenuTrigger render={<Button variant="icon" aria-label={`Actions for cell ${index + 1}`} title="Cell actions" disabled={busy} />} onClick={() => select(block.id)}><Ellipsis aria-hidden="true"/></DropdownMenuTrigger><DropdownMenuContent>
               {block.kind !== 'result' && <><DropdownMenuItem onClick={() => { setSelectedId(block.id); editing ? commandMode() : setEditingId(block.id); }}>{editing ? 'Preview' : 'Edit'}</DropdownMenuItem><DropdownMenuSeparator /></>}
               <DropdownMenuItem disabled={busy} onClick={() => void action(() => insert('code', block.id, 'before'))}>Insert Code above</DropdownMenuItem>
@@ -394,29 +436,13 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
               <DropdownMenuSeparator />
               <DropdownMenuItem destructive disabled={busy} onClick={() => setPendingDelete({ kind: 'cell', id: block.id })}>Delete</DropdownMenuItem>
             </DropdownMenuContent></DropdownMenu></div>
-          {block.kind === 'result' ? block.execution_id ? <ResultBlock executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)} sources={sources} initialResult={countResult?.execution.id === block.execution_id ? countResult : undefined}/> : <p>Execution reference unavailable.</p>
+          {block.kind === 'result' ? block.execution_id ? <ResultBlock key={block.execution_id} executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)} sources={sources} initialResult={analysisResult?.execution.id === block.execution_id ? analysisResult : undefined}/> : <p>Execution reference unavailable.</p>
             : editing ? <>{block.kind === 'code' && <span className="notebook-code-prompt" aria-label="Editing code; execution unavailable">[*]</span>}<div className={block.kind === 'code' ? 'notebook-code-frame' : 'notebook-text-frame'}><Textarea ref={editorRef} rows={Math.max(3, draft.split('\n').length + 1)} className={block.kind === 'code' ? 'notebook-code-editor' : ''} aria-label={`${label} cell ${index + 1} editor`} value={draft} readOnly={busy} spellCheck={block.kind === 'markdown'} onKeyDown={event => { if (block.kind !== 'code' || event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return; event.preventDefault(); const [value, start, end] = indentCode(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd); setDrafts(current => ({ ...current, [block.id]: value })); cursor.current[block.id] = [start, end]; requestAnimationFrame(() => editorRef.current?.setSelectionRange(start, end)); }} onSelect={event => { cursor.current[block.id] = [event.currentTarget.selectionStart, event.currentTarget.selectionEnd]; }} onChange={event => { const value = event.target.value; setDrafts(current => { const next = { ...current }; if (value === block.content) delete next[block.id]; else next[block.id] = value; return next; }); }}/>{block.kind === 'code' && <div className="notebook-code-output">No output · execution unavailable</div>}</div></>
               : block.kind === 'markdown' ? <div className="notebook-preview" onDoubleClick={() => setEditingId(block.id)}><Markdown text={draft}/></div>
                 : <><span className="notebook-code-prompt" aria-label="Code not run">[ ]</span><div className="notebook-code-preview"><div className="notebook-code-source"><pre>{draft || 'Press Enter to write code.'}</pre></div><div className="notebook-code-output">No output · execution unavailable</div></div></>}
         </section></Fragment>;
       })}<InsertionSlot disabled={busy} location={notebook.blocks.length ? `after cell ${notebook.blocks.length}` : 'in the empty notebook'} insert={kind => void action(() => insert(kind, notebook.blocks.at(-1)?.id, notebook.blocks.length ? 'after' : undefined))}/>{!notebook.blocks.length && <div className="notebook-empty-hint"><p>Add a cell to begin this notebook.</p><div><Button disabled={busy} onClick={() => void action(() => insert('code'))}>+ Code</Button><Button disabled={busy} onClick={() => void action(() => insert('markdown'))}>+ Text</Button></div></div>}</div>
-      <form className="notebook-add notebook-count" onSubmit={event => {
-        event.preventDefault();
-        if (countSourceReady) {
-          void countRows();
-        }
-      }}>
-        <label htmlFor="notebook-count-source">Count rows in</label>
-        <Select id="notebook-count-source" value={countSourceReady ? countSourceId : ''} disabled={!!countRunId || !hasReadySource} onChange={event => setCountSourceId(event.target.value)}>
-          <option value="">{hasReadySource ? 'Choose a registered source' : 'No ready sources'}</option>
-          {sources.map(source => <option key={source.id} value={source.id} disabled={source.status !== 'ready'}>{source.name}{source.status !== 'ready' ? ` (${source.status})` : ''}</option>)}
-        </Select>
-        <Button type="submit" size="small" loading={!!countRunId} disabled={!countSourceReady}>Count rows</Button>
-        {countRunId && <Button type="button" size="small" variant="ghost" disabled={!countCanCancel || !!countNotice} onClick={() => void cancelCount()}>Cancel</Button>}
-        <p className="notebook-muted">Built-in analysis for registered sources. Python and SQL execution is unavailable.</p>
-        {(countRunId || countNotice) && <p className="notebook-muted" role="status">{countNotice || 'Counting rows…'}</p>}
-        {countError && <p className="inline-error" role="alert">{countError}</p>}
-      </form>
+      <NotebookAnalysisForm sources={sources} sourceId={analysisSourceId} onSourceChange={id => { setAnalysisSourceId(id); setConfiguration(defaultConfiguration()); setTargetResultId(null); setAnalysisError(''); }} columns={columns} schemaLoading={schemaLoading} schemaError={schemaError} config={configuration} onConfigChange={setConfiguration} targetResultId={targetResultId} onNewResult={() => { setTargetResultId(null); setAnalysisNotice("The next run will add a new result cell."); }} running={!!analysisRunId} canCancel={analysisCanCancel} notice={analysisNotice} error={analysisError} onRun={() => void runAnalysis()} onCancel={() => void cancelAnalysis()}/>
       {!!executions.length && <div className="notebook-add"><label htmlFor="execution-select">Saved execution</label><Select id="execution-select" value={executionId} onChange={e => setExecutionId(e.target.value)}><option value="">Choose an execution</option>{executions.map(item => <option key={item.id} value={item.id}>{notebookExecutionLabel(item, sources)}</option>)}</Select><Button disabled={busy || !succeeded} onClick={() => void action(async () => { const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId }); await reload(); setSelectedId(block.id); focusCell(block.id); })}>Add result</Button>{succeeded && <details className="notebook-execution-choice-details"><summary>Selected execution details</summary><small>Execution ID: {succeeded.id}<br/>Dataset ID: {succeeded.dataset_id}<br/>Source fingerprint: {succeeded.source_fingerprint}<br/>Recorded status: {succeeded.status}</small><div>Original parameters</div><pre>{succeeded.parameters}</pre></details>}</div>}
     </>}
     <ConfirmationDialog open={pendingDelete !== null} title={pendingDelete?.kind === 'notebook' ? 'Delete notebook?' : 'Delete cell?'} description={pendingDelete?.kind === 'notebook' ? `Delete “${pendingDelete.title}” and all its cells? This cannot be undone.` : 'Delete this cell? This cannot be undone.'} confirmLabel="Delete" destructive onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete}/>

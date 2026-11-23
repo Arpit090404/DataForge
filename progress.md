@@ -1,7 +1,15 @@
 # DataForge progress
 
-**Updated:** 2026-11-22
+**Updated:** 2026-11-23
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
+
+## Notebook typed analysis expansion (2026-11-23)
+
+The Notebook now exposes typed row filtering/sorting and grouped summaries with count, sum, average, minimum, maximum, and distinct count. The compact form reads registered source columns, supports flat AND/OR filters, up to three sort/group columns, up to six measures, and a 1–200 row page size. A successful run adds a Result cell; Edit analysis loads its saved configuration and a successful rerun updates the same cell's execution reference. Earlier executions and their provenance remain in history. Python/SQL Code execution remains unavailable. The backend retarget command validates the cell and successful project execution transactionally.
+
+**Verified:** `node tests/notebook-analysis.cjs`, desktop TypeScript, Notebook keyboard/Home/provenance tests, and `npm.cmd run build` passed; the production build needed filesystem access beyond the restricted sandbox to read Vite configuration. `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml` passed all 28 tests, including a row-to-group rerun/reopen workflow. Impeccable detection returned `[]`; `git diff --check` passed. A Tauri dev build launched WebView2 and exposed its accessibility tree, but native click-through failed with “coordinate input geometry is unavailable,” and the window capture was black. UI-to-host clicks, live cancellation, and visual layout remain unverified.
+
+**Limitations:** Notebook editing handles flat filter groups; a saved nested group can still be viewed/replayed but cannot be loaded into this form. Notebook results display the requested bounded page without page navigation. The source workspace retains its fuller nested filter and pagination controls.
 
 ## Notebook Count rows reliability sweep
 

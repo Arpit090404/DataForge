@@ -260,6 +260,25 @@
 .notebook-add .ui-select{flex:1;min-width:0}
 .notebook-count{padding-bottom:var(--space-3)}
 .notebook-count p{flex-basis:100%;margin:0}
+.notebook-analysis{display:block}
+.notebook-analysis-heading{display:flex;align-items:start;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3)}
+.notebook-analysis-heading h2{font-size:var(--font-size-component);margin:0 0 var(--space-1);color:var(--color-text)}
+.notebook-analysis-heading p,.notebook-analysis>p{margin:0 0 var(--space-2);color:var(--color-text-muted);font-size:var(--font-size-secondary)}
+.notebook-analysis-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--space-2)}
+.notebook-analysis-fields label,.notebook-analysis-limit{display:grid;gap:var(--space-1);color:var(--color-text-muted);font-size:var(--font-size-secondary)}
+.notebook-analysis-section{display:grid;gap:var(--space-2);margin-top:var(--space-3)}
+.notebook-analysis-section>strong{color:var(--color-text-secondary);font-size:var(--font-size-secondary)}
+.notebook-analysis-chips{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.notebook-analysis-chips label{display:flex;align-items:center;gap:var(--space-1);color:var(--color-text-secondary);font-size:var(--font-size-secondary)}
+.notebook-analysis-chips input{accent-color:var(--color-accent)}
+.notebook-analysis-rule{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.notebook-analysis-rule>.ui-select,.notebook-analysis-rule>.ui-input{flex:1;min-width:0;width:0}
+.notebook-analysis-options{margin-top:var(--space-3);border-top:1px solid var(--color-border)}
+.notebook-analysis-options>summary{padding:var(--space-2) 0;cursor:pointer;color:var(--color-text-secondary)}
+.notebook-analysis-options>summary:focus-visible{outline:var(--focus-width) solid var(--color-focus-ring);outline-offset:2px}
+.notebook-analysis-limit{max-width:160px;margin-top:var(--space-3)}
+.notebook-analysis-actions{display:flex;gap:var(--space-2);margin:var(--space-3) 0}
+@media(max-width:1000px){.notebook-analysis-rule{flex-wrap:wrap}.notebook-analysis-rule>.ui-select,.notebook-analysis-rule>.ui-input{flex-basis:140px;width:auto}.notebook-analysis-fields{grid-template-columns:1fr}}
 .notebook-execution-choice-details{flex-basis:100%;color:var(--color-text-muted);font-size:var(--font-size-meta)}
 .notebook-execution-choice-details pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .notebook-result-meta span{overflow-wrap:anywhere}

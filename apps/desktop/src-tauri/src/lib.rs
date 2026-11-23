@@ -400,6 +400,11 @@ async fn update_block(id: String, content: String, language: Option<String>, sta
     tauri::async_runtime::spawn_blocking(move || notebook::update_block_inner(&project, &id, &content, language.as_deref())).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
+async fn update_result_block(id: String, execution_id: String, state: State<'_, ActiveProject>) -> Result<notebook::NotebookBlock> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || notebook::update_result_block_inner(&project, &id, &execution_id)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
 async fn delete_block(id: String, state: State<'_, ActiveProject>) -> Result<()> {
     let project = active(&state)?;
     tauri::async_runtime::spawn_blocking(move || notebook::delete_block_inner(&project, &id)).await.map_err(|_| storage_error())?
@@ -423,7 +428,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![create_project, open_project, register_csv, list_datasets, inspect_csv,
             run_analytics, list_executions, cancel_execution, active_execution, export_result,
             list_notebooks, get_notebook, create_notebook, rename_notebook, delete_notebook,
-            add_block, update_block, delete_block, move_block, get_execution_result])
+            add_block, update_block, update_result_block, delete_block, move_block, get_execution_result])
         .run(tauri::generate_context!()).expect("DataForge could not start");
 }
 
