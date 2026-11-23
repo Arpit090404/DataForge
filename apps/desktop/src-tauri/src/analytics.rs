@@ -568,21 +568,40 @@ mod tests {
         let dataset = register_csv_inner(path, source.to_str().unwrap()).unwrap();
         let control = AnalyticsControl::default();
         let id = uuid::Uuid::new_v4().to_string();
-        let request = serde_json::from_value(serde_json::json!({
+        let request = || serde_json::from_value(serde_json::json!({
             "kind": "group", "group_by": [], "aggregations": [{"op": "count", "alias": "row_count"}], "limit": 1
         })).unwrap();
-        let result = run_analytics_with_id(path, &dataset.id, request, &control, id.clone()).unwrap();
+        let result = run_analytics_with_id(path, &dataset.id, request(), &control, id.clone()).unwrap();
         assert_eq!(result.execution.id, id);
         assert_eq!(result.rows, vec![vec![Some("3".into())]]);
         assert!(!result.has_more);
         let notebook = serde_json::to_value(crate::notebook::create_notebook_inner(path, "Counts").unwrap()).unwrap();
         let notebook_id = notebook["id"].as_str().unwrap();
         crate::notebook::add_block_inner(path, notebook_id, "result", "", Some(&id), None, None, None).unwrap();
+        let opened = crate::open_project_inner(path.to_str().unwrap()).unwrap();
+        let path = Path::new(&opened.project.path);
         let reopened = serde_json::to_value(crate::notebook::get_notebook_inner(path, notebook_id).unwrap()).unwrap();
         assert_eq!(reopened["blocks"][0]["execution_id"].as_str(), Some(id.as_str()));
+        fs::write(&source, "Value\nChanged\n").unwrap();
+        assert_eq!(run_analytics_inner(path, &dataset.id, request(), &control).unwrap_err().code, "file_changed");
+        fs::remove_file(&source).unwrap();
+        assert_eq!(run_analytics_inner(path, &dataset.id, request(), &control).unwrap_err().code, "file_changed");
+        assert_eq!(list_executions_inner(path).unwrap().len(), 1);
         let replay = get_execution_result_inner(path, &id, &control).unwrap();
         assert_eq!(replay.rows, result.rows);
         assert_eq!(replay.execution.source_fingerprint, result.execution.source_fingerprint);
+        let store = path.join("analytics.duckdb");
+        let backup = path.join("analytics-unavailable.duckdb");
+        fs::rename(&store, &backup).unwrap();
+        assert_eq!(get_execution_result_inner(path, &id, &control).unwrap_err().code, "result_unavailable");
+        fs::rename(&backup, &store).unwrap();
+        assert_eq!(get_execution_result_inner(path, &id, &control).unwrap().rows, result.rows);
+
+        let empty = root.join("empty.csv");
+        fs::write(&empty, "Value\n").unwrap();
+        let empty_dataset = register_csv_inner(path, empty.to_str().unwrap()).unwrap();
+        let empty_count = run_analytics_inner(path, &empty_dataset.id, request(), &control).unwrap();
+        assert_eq!(empty_count.rows, vec![vec![Some("0".into())]]);
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -614,6 +633,8 @@ mod tests {
     fn cancellation_flag_reaches_running_operation() {
         let control=AnalyticsControl::default();
         let (_guard,cancelled,timed_out)=control.start("one").unwrap();
+        assert_eq!(cancel_execution_inner(&control,"another").unwrap_err().code,"execution_missing");
+        assert!(!cancelled.load(Ordering::Relaxed));
         cancel_execution_inner(&control,"one").unwrap();
         assert_eq!(check(&cancelled,&timed_out,Instant::now()+Duration::from_secs(1)).unwrap_err().code,"cancelled");
     }

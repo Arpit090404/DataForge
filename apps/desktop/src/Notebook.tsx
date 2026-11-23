@@ -33,6 +33,13 @@ function message(error: unknown) {
   return 'The notebook operation could not be completed.';
 }
 
+function hasErrorCode(error: unknown, code: string): boolean {
+  if (typeof error === 'string') {
+    try { return hasErrorCode(JSON.parse(error), code); } catch { return false; }
+  }
+  return !!error && typeof error === 'object' && 'code' in error && error.code === code;
+}
+
 function ResultBlock({ executionId, execution: historyExecution, sources, initialResult }: { executionId: string; execution?: Execution; sources: Source[]; initialResult?: Result }) {
   const [result, setResult] = useState<Result | null>(initialResult ?? null);
   const [error, setError] = useState('');
@@ -49,7 +56,7 @@ function ResultBlock({ executionId, execution: historyExecution, sources, initia
   return <div className="notebook-output">
     <div className="notebook-result-meta"><div className="notebook-result-identity"><strong>{description?.operation ?? 'Saved execution'}</strong><span>{execution ? `Registered source: ${registeredSourceName(execution, sources)}` : 'Source unavailable'}</span></div>{description && <span className="notebook-result-summary">{description.summary}</span>}<small>{execution?.result_row_count ?? '—'} recorded rows{execution && <> · {new Date(execution.started_at).toLocaleString()}</>}</small></div>
     {(!result && !attempt) || error ? <div className="notebook-unavailable">{error && <p role="status">Result unavailable: {error}</p>}{!error && <p>Load replays the saved operation against its pinned representation.</p>}<Button variant="secondary" size="small" onClick={() => setAttempt(value => value + 1)}>{error ? 'Retry result' : 'Load result'}</Button></div>
-      : !result ? <p className="notebook-muted">Replaying saved execution…</p>
+      : !result ? <p className="notebook-muted" role="status">Replaying saved execution…</p>
         : <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined} title={column.name}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j} className={numericColumnType.test(result.columns[j]?.data_type ?? '') ? 'notebook-number' : undefined} title={value ?? undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div><p className="notebook-muted">Showing {result.rows.length} rows{result.has_more ? ' · more rows available in the original operation' : ''}. {attempt ? 'Replayed from the pinned representation, not a saved snapshot. Without a saved sort, row order may vary.' : 'From the latest execution. Reopening this notebook loads the result by replay.'}</p></>}
     <details><summary>Execution details</summary><small>Execution ID: {executionId}{execution && <><br/>Dataset ID: {execution.dataset_id}<br/>Source fingerprint: {execution.source_fingerprint}<br/>Recorded status: {execution.status}<br/>Engine: {execution.duckdb_version ? `DuckDB ${execution.duckdb_version}` : 'Unavailable'}</>}</small>{execution && <><div>Original parameters</div><pre>{execution.parameters}</pre></>}</details>
   </div>;
@@ -72,6 +79,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   const [executionId, setExecutionId] = useState('');
   const [countSourceId, setCountSourceId] = useState('');
   const [countRunId, setCountRunId] = useState<string | null>(null);
+  const pendingCount = useRef<string | null>(null);
   const [countCanCancel, setCountCanCancel] = useState(false);
   const [countNotice, setCountNotice] = useState('');
   const [countError, setCountError] = useState('');
@@ -151,11 +159,14 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   }, [countRunId]);
 
   async function countRows() {
+    if (pendingCount.current) return;
     const id = crypto.randomUUID();
+    pendingCount.current = id;
     setCountRunId(id);
     setCountCanCancel(false);
     setCountNotice('');
     setCountError('');
+    setExecutionId('');
     try {
       const result = await invoke<Result>('run_analytics', {
         datasetId: countSourceId,
@@ -167,18 +178,24 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       setExecutionId(result.execution.id);
       setCountNotice('Count saved. Add the selected result to insert it into this notebook.');
     } catch (error) {
-      setCountError(message(error));
+      if (hasErrorCode(error, 'cancelled')) setCountNotice('Count cancelled.');
+      else {
+        setCountNotice('');
+        setCountError(message(error));
+      }
     } finally {
+      pendingCount.current = null;
       setCountRunId(null);
       setCountCanCancel(false);
     }
   }
 
   async function cancelCount() {
-    if (!countRunId || !countCanCancel) return;
+    if (!countRunId || pendingCount.current !== countRunId || !countCanCancel) return;
     setCountNotice('Cancellation requested.');
     try { await invoke('cancel_execution', { executionId: countRunId }); }
     catch (error) {
+      if (pendingCount.current !== countRunId || hasErrorCode(error, 'execution_missing')) return;
       setCountNotice('');
       setCountError(message(error));
     }
@@ -288,6 +305,8 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     focusCell(id);
   }
   const succeeded = executions.find(item => item.id === executionId);
+  const countSourceReady = sources.some(source => source.id === countSourceId && source.status === 'ready');
+  const hasReadySource = sources.some(source => source.status === 'ready');
   const visibleNotebooks = sortNotebooks(filterNotebooks(notebooks, search), sort);
   const saveStatus = savingNotebook ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved';
   return <div className={`notebook-workspace ${notebook ? 'notebook-editor' : 'notebook-home'}`} onKeyDown={onKeyDown}>
@@ -383,19 +402,19 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       })}<InsertionSlot disabled={busy} location={notebook.blocks.length ? `after cell ${notebook.blocks.length}` : 'in the empty notebook'} insert={kind => void action(() => insert(kind, notebook.blocks.at(-1)?.id, notebook.blocks.length ? 'after' : undefined))}/>{!notebook.blocks.length && <div className="notebook-empty-hint"><p>Add a cell to begin this notebook.</p><div><Button disabled={busy} onClick={() => void action(() => insert('code'))}>+ Code</Button><Button disabled={busy} onClick={() => void action(() => insert('markdown'))}>+ Text</Button></div></div>}</div>
       <form className="notebook-add notebook-count" onSubmit={event => {
         event.preventDefault();
-        if (!countRunId && sources.some(source => source.id === countSourceId && source.status === 'ready')) {
+        if (countSourceReady) {
           void countRows();
         }
       }}>
         <label htmlFor="notebook-count-source">Count rows in</label>
-        <Select id="notebook-count-source" value={countSourceId} disabled={!!countRunId} onChange={event => setCountSourceId(event.target.value)}>
-          <option value="">Choose a registered source</option>
-          {sources.map(source => <option key={source.id} value={source.id} disabled={source.status !== 'ready'}>{source.name}</option>)}
+        <Select id="notebook-count-source" value={countSourceReady ? countSourceId : ''} disabled={!!countRunId || !hasReadySource} onChange={event => setCountSourceId(event.target.value)}>
+          <option value="">{hasReadySource ? 'Choose a registered source' : 'No ready sources'}</option>
+          {sources.map(source => <option key={source.id} value={source.id} disabled={source.status !== 'ready'}>{source.name}{source.status !== 'ready' ? ` (${source.status})` : ''}</option>)}
         </Select>
-        <Button type="submit" size="small" loading={!!countRunId} disabled={!sources.some(source => source.id === countSourceId && source.status === 'ready')}>Count rows</Button>
+        <Button type="submit" size="small" loading={!!countRunId} disabled={!countSourceReady}>Count rows</Button>
         {countRunId && <Button type="button" size="small" variant="ghost" disabled={!countCanCancel || !!countNotice} onClick={() => void cancelCount()}>Cancel</Button>}
-        <p className="notebook-muted">Runs a built-in analysis. Python and SQL cells remain editable source.</p>
-        {(countRunId || countNotice) && <p className="notebook-muted" role="status">{countNotice || 'Counting rows?'}</p>}
+        <p className="notebook-muted">Built-in analysis for registered sources. Python and SQL execution is unavailable.</p>
+        {(countRunId || countNotice) && <p className="notebook-muted" role="status">{countNotice || 'Counting rows…'}</p>}
         {countError && <p className="inline-error" role="alert">{countError}</p>}
       </form>
       {!!executions.length && <div className="notebook-add"><label htmlFor="execution-select">Saved execution</label><Select id="execution-select" value={executionId} onChange={e => setExecutionId(e.target.value)}><option value="">Choose an execution</option>{executions.map(item => <option key={item.id} value={item.id}>{notebookExecutionLabel(item, sources)}</option>)}</Select><Button disabled={busy || !succeeded} onClick={() => void action(async () => { const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId }); await reload(); setSelectedId(block.id); focusCell(block.id); })}>Add result</Button>{succeeded && <details className="notebook-execution-choice-details"><summary>Selected execution details</summary><small>Execution ID: {succeeded.id}<br/>Dataset ID: {succeeded.dataset_id}<br/>Source fingerprint: {succeeded.source_fingerprint}<br/>Recorded status: {succeeded.status}</small><div>Original parameters</div><pre>{succeeded.parameters}</pre></details>}</div>}

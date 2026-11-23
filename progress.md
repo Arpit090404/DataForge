@@ -3,6 +3,14 @@
 **Updated:** 2026-11-22
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook Count rows reliability sweep
+
+Count rows now clears the prior result selection before running, prevents duplicate submission, distinguishes a confirmed cancellation from a failure, and ignores stale cancellation responses. The source picker identifies changed or missing registrations and shows when no source is ready. Replay announces loading, and the count form explicitly describes Python and SQL execution as unavailable.
+
+`cargo test --locked --offline --lib analytics::tests` passed all eight tests. The count test now opens the project again, verifies the Result reference and fingerprint, rejects new counts on changed and missing CSVs, and replays the original count from its pinned data. It also verifies an unavailable-store failure followed by a successful retry and a zero count for a header-only CSV. The cancellation test verifies that an unrelated ID cannot cancel the active execution.
+
+Desktop TypeScript, Notebook keyboard/Home/provenance, analysis-result, design-token and form-control checks, Impeccable, and `git diff --check` passed. `npm.cmd run tauri:dev` rebuilt and launched DataForge. Computer Use ended during native window inspection. The WebView2 click-through, live cancellation during a count, and native loading/error/retry presentation remain unverified.
+
 ## Notebook Count rows (2026-11-23)
 
 From an open notebook, select a ready registered source and choose Count rows. The existing Rust/DuckDB command records a typed count with a one-row result limit. Success selects its saved execution in the existing picker. Add result inserts a Result cell with the returned data, and Load result after reopening replays the same execution from its pinned representation. Cancel targets the submitted execution ID once the backend reports it active. Code cells retain their existing authoring behavior.
