@@ -60,6 +60,12 @@ fn code_language(language: Option<&str>) -> Result<&str> {
     match language { Some("python") => Ok("python"), Some("sql") => Ok("sql"),
         _ => Err(error("invalid_language", "Choose Python or SQL for a code cell.")) }
 }
+fn successful_execution(conn: &Connection, id: &str) -> Result<()> {
+    let found:Option<i64>=conn.query_row("SELECT 1 FROM executions e JOIN project p ON p.id=e.project_id WHERE e.id=?1 AND e.status='succeeded'",
+        [id],|r|r.get(0)).optional().map_err(|_|notebook_error())?;
+    if found.is_none() {return Err(error("invalid_execution","Choose a completed execution from this project."));}
+    Ok(())
+}
 fn summary(conn: &Connection, id: &str) -> Result<NotebookSummary> {
     conn.query_row("SELECT n.id,n.title,n.created_at,n.updated_at,COUNT(b.id)
         FROM notebooks n LEFT JOIN notebook_blocks b ON b.notebook_id=n.id WHERE n.id=?1 GROUP BY n.id",[id], |r|
@@ -132,10 +138,7 @@ pub(super) fn add_block_inner(project: &Path, notebook_id: &str, kind: &str, con
         "result" => {
             if !content.is_empty() || language.is_some() {return Err(error("invalid_block","Result blocks use a saved execution without submitted content or language."));}
             let id=execution_id.ok_or_else(||error("invalid_block","Choose an execution for this result block."))?;
-            let project_id:String=conn.query_row("SELECT id FROM project LIMIT 1",[],|r|r.get(0)).map_err(|_|notebook_error())?;
-            let found:Option<i64>=conn.query_row("SELECT 1 FROM executions WHERE id=?1 AND project_id=?2 AND status='succeeded'",
-                params![id,project_id],|r|r.get(0)).optional().map_err(|_|notebook_error())?;
-            if found.is_none() {return Err(error("invalid_execution","Choose a completed execution from this project."));}
+            successful_execution(&conn,id)?;
             String::new()
         },
         _ => return Err(error("unsupported_block","Only text, code, and saved result cells are supported."))
@@ -182,6 +185,19 @@ pub(super) fn update_block_inner(project: &Path, id: &str, content: &str, langua
     conn.execute_batch("COMMIT").map_err(|_|notebook_error())?;
     block(&conn,id)
 }
+pub(super) fn update_result_block_inner(project: &Path, id: &str, execution_id: &str) -> Result<NotebookBlock> {
+    let mut conn=db(project)?;
+    let transaction=conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|_|notebook_error())?;
+    let existing=block(&transaction,id)?;
+    if existing.kind!="result" {return Err(error("invalid_block","Only result cells can reference an execution."));}
+    successful_execution(&transaction,execution_id)?;
+    let timestamp=now();
+    transaction.execute("UPDATE notebook_blocks SET execution_id=?1,updated_at=?2 WHERE id=?3",params![execution_id,timestamp,id]).map_err(|_|notebook_error())?;
+    transaction.execute("UPDATE notebooks SET updated_at=?1 WHERE id=?2",params![timestamp,existing.notebook_id]).map_err(|_|notebook_error())?;
+    let updated=block(&transaction,id)?;
+    transaction.commit().map_err(|_|notebook_error())?;
+    Ok(updated)
+}
 pub(super) fn delete_block_inner(project: &Path, id: &str) -> Result<()> {
     let conn=db(project)?;
     conn.execute_batch("BEGIN IMMEDIATE").map_err(|_|notebook_error())?;
@@ -215,6 +231,72 @@ mod tests {
         let root=std::env::temp_dir().join(format!("dataforge-notebook-test-{}",uuid::Uuid::new_v4())); std::fs::create_dir(&root).unwrap();
         let project=create_project_inner("Study",root.to_str().unwrap()).unwrap();
         (root,std::path::PathBuf::from(project.project.path))
+    }
+    fn execution(project: &Path, id: &str, status: &str, foreign: bool) {
+        let conn=db(project).unwrap();
+        let project_id:String=if foreign {"other-project".into()} else {conn.query_row("SELECT id FROM project LIMIT 1",[],|r|r.get(0)).unwrap()};
+        conn.execute("INSERT INTO executions(id,project_id,dataset_id,source_fingerprint,operation_type,parameters,started_at,status,schema_version) VALUES(?1,?2,'dataset','hash','rows','{}',?3,?4,1)",params![id,project_id,now(),status]).unwrap();
+    }
+    #[test]
+    fn result_retarget_preserves_cell_identity_and_order_after_reopen() {
+        let (root,project)=fixture();let note=create_notebook_inner(&project,"Research").unwrap();
+        execution(&project,"first","succeeded",false);execution(&project,"second","succeeded",false);
+        let text=add_block_inner(&project,&note.id,"markdown","Context",None,None,None,None).unwrap();
+        let original=add_block_inner(&project,&note.id,"result","",Some("first"),None,None,None).unwrap();
+        let conn=db(&project).unwrap();
+        conn.execute("UPDATE notebooks SET updated_at='old' WHERE id=?1",[&note.id]).unwrap();
+        conn.execute("UPDATE notebook_blocks SET updated_at='old' WHERE id=?1",[&original.id]).unwrap();
+        drop(conn);
+        let updated=update_result_block_inner(&project,&original.id,"second").unwrap();
+        assert_eq!(updated.id,original.id);assert_eq!(updated.notebook_id,original.notebook_id);
+        assert_eq!(updated.position,original.position);assert_eq!(updated.created_at,original.created_at);
+        assert_eq!(updated.kind,"result");assert_eq!(updated.content,"");assert!(updated.language.is_none());
+        assert_ne!(updated.updated_at,"old");assert_eq!(updated.execution_id.as_deref(),Some("second"));
+        let reopened=get_notebook_inner(&project,&note.id).unwrap();
+        assert_eq!(reopened.blocks.len(),2);assert_eq!(reopened.blocks[0].id,text.id);
+        assert_eq!(reopened.blocks[1].id,original.id);assert_eq!(reopened.blocks[1].execution_id.as_deref(),Some("second"));
+        assert_eq!(reopened.updated_at,updated.updated_at);
+        let conn=db(&project).unwrap();
+        assert_eq!(conn.query_row::<i64,_,_>("SELECT COUNT(*) FROM executions",[],|r|r.get(0)).unwrap(),2);
+        drop(conn);std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn result_retarget_rejects_invalid_cells_and_executions_without_changes() {
+        let (root,project)=fixture();let note=create_notebook_inner(&project,"Research").unwrap();
+        execution(&project,"original","succeeded",false);
+        let result=add_block_inner(&project,&note.id,"result","",Some("original"),None,None,None).unwrap();
+        let text=add_block_inner(&project,&note.id,"markdown","Context",None,None,None,None).unwrap();
+        let code=add_block_inner(&project,&note.id,"code","SELECT 1",None,None,None,Some("sql")).unwrap();
+        let before=serde_json::to_value(get_notebook_inner(&project,&note.id).unwrap()).unwrap();
+        for status in ["running","failed","cancelled","interrupted"] {
+            execution(&project,status,status,false);
+            assert_eq!(update_result_block_inner(&project,&result.id,status).unwrap_err().code,"invalid_execution");
+        }
+        execution(&project,"foreign","succeeded",true);
+        for id in ["missing","foreign"] {
+            assert_eq!(update_result_block_inner(&project,&result.id,id).unwrap_err().code,"invalid_execution");
+        }
+        for id in [&text.id,&code.id] {
+            assert_eq!(update_result_block_inner(&project,id,"original").unwrap_err().code,"invalid_block");
+        }
+        assert_eq!(update_result_block_inner(&project,"missing","original").unwrap_err().code,"block_missing");
+        let other=create_project_inner("Other",root.to_str().unwrap()).unwrap();
+        assert_eq!(update_result_block_inner(Path::new(&other.project.path),&result.id,"original").unwrap_err().code,"block_missing");
+        assert_eq!(serde_json::to_value(get_notebook_inner(&project,&note.id).unwrap()).unwrap(),before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn result_retarget_rolls_back_when_notebook_update_fails() {
+        let (root,project)=fixture();let note=create_notebook_inner(&project,"Research").unwrap();
+        execution(&project,"original","succeeded",false);execution(&project,"replacement","succeeded",false);
+        let result=add_block_inner(&project,&note.id,"result","",Some("original"),None,None,None).unwrap();
+        let before=serde_json::to_value(get_notebook_inner(&project,&note.id).unwrap()).unwrap();
+        let conn=db(&project).unwrap();
+        conn.execute_batch("CREATE TRIGGER reject_notebook_update BEFORE UPDATE ON notebooks BEGIN SELECT RAISE(ABORT,'test failure'); END;").unwrap();
+        drop(conn);
+        assert_eq!(update_result_block_inner(&project,&result.id,"replacement").unwrap_err().code,"notebook_error");
+        assert_eq!(serde_json::to_value(get_notebook_inner(&project,&note.id).unwrap()).unwrap(),before);
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn ordered_markdown_survives_reopen() {
