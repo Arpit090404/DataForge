@@ -415,10 +415,10 @@ async fn move_block(id: String, direction: String, state: State<'_, ActiveProjec
     tauri::async_runtime::spawn_blocking(move || notebook::move_block_inner(&project, &id, &direction)).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
-async fn get_execution_result(execution_id: String, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<analytics::AnalyticsResult> {
+async fn get_execution_result(execution_id: String, page: Option<analytics::ResultPage>, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<analytics::AnalyticsResult> {
     let project = active(&state)?;
     let control = control.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || analytics::get_execution_result_inner(&project, &execution_id, &control)).await.map_err(|_| storage_error())?
+    tauri::async_runtime::spawn_blocking(move || analytics::get_execution_result_inner(&project, &execution_id, page, &control)).await.map_err(|_| storage_error())?
 }
 
 pub fn run() {

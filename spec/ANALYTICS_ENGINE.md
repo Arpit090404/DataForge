@@ -12,6 +12,8 @@ Notebook result blocks replay a successful execution's stored structured paramet
 
 The Notebook can submit the existing typed row and group request kinds through the same backend command, using a subset of the source workspace's filter and page controls. A successful rerun may update an existing Result block's execution reference in a project-scoped transaction after verifying the new execution succeeded; it preserves the block ID and order. Execution records remain append-only. A failed or cancelled run does not retarget the block.
 
+`get_execution_result` accepts an optional `{ offset, limit }` page override for both row and grouped operations. The host validates `offset <= 100000` and `1 <= limit <= 200`, then applies the override only to the in-memory replay request. Omitting it replays the originally recorded page. Page changes return the original execution metadata and do not change stored parameters or execution history. The existing per-page byte, time, memory, concurrency, and cancellation limits still apply.
+
 ## Responsibilities
 File inspection/ingestion, schema inference, profiling, bounded DuckDB queries, trusted statistical routines, bounded result serialization, host-private artifact staging, execution telemetry, cancellation. Under proposed ADR 0009, the host owns DuckDB and artifact writes; the Python worker receives brokered input and returns bounded data. Arbitrary Python is deferred by proposed ADR 0008.
 

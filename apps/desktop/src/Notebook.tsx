@@ -16,6 +16,8 @@ import { describeNotebookExecution, notebookExecutionLabel, registeredSourceName
 import { NotebookAnalysisForm } from './NotebookAnalysisForm';
 import { buildNotebookRequest, configurationFromExecution, defaultConfiguration } from './notebookAnalysis';
 import type { Column, Configuration } from './notebookAnalysis';
+import { nextResultPage, previousResultPage, resultRowRange, savedResultPage } from './notebookResultPage';
+import type { ResultPage } from './notebookResultPage';
 import { BookOpen, Ellipsis, Plus, Search } from 'lucide-react';
 
 type Execution = { id: string; dataset_id: string; operation_type: string; parameters: string; started_at: string; completed_at: string | null; status: string; result_row_count: number | null; error_summary: string | null; duckdb_version: string | null; source_fingerprint: string };
@@ -46,21 +48,48 @@ function hasErrorCode(error: unknown, code: string): boolean {
 function ResultBlock({ executionId, execution: historyExecution, sources, initialResult }: { executionId: string; execution?: Execution; sources: Source[]; initialResult?: Result }) {
   const [result, setResult] = useState<Result | null>(initialResult ?? null);
   const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(!!initialResult);
+  const [page, setPage] = useState<ResultPage | null>(initialResult ? savedResultPage(initialResult.execution.parameters) : null);
+  const [retryPage, setRetryPage] = useState<ResultPage | null>(null);
+  const requestSerial = useRef(0);
+  const pending = useRef(false);
   useEffect(() => {
-    if (!attempt) return;
-    let current = true;
-    setResult(null); setError('');
-    invoke<Result>('get_execution_result', { executionId }).then(value => { if (current) setResult(value); }).catch(e => { if (current) setError(message(e)); });
-    return () => { current = false; };
-  }, [executionId, attempt]);
+    setResult(initialResult ?? null); setError(''); setLoading(false); setLoaded(!!initialResult);
+    setPage(initialResult ? savedResultPage(initialResult.execution.parameters) : null); setRetryPage(null);
+    return () => { requestSerial.current++; pending.current = false; };
+  }, [executionId]);
+  async function loadPage(target?: ResultPage) {
+    if (pending.current) return;
+    pending.current = true;
+    const serial = ++requestSerial.current;
+    setLoading(true); setError(''); setRetryPage(target ?? null);
+    try {
+      const value = await invoke<Result>('get_execution_result', { executionId, ...(target ? { page: target } : {}) });
+      if (serial !== requestSerial.current) return;
+      setResult(value); setPage(target ?? savedResultPage(value.execution.parameters)); setLoaded(true); setRetryPage(null);
+    } catch (failure) {
+      if (serial === requestSerial.current) setError(message(failure));
+    } finally {
+      if (serial === requestSerial.current) { pending.current = false; setLoading(false); }
+    }
+  }
   const execution = result?.execution ?? historyExecution;
   const description = execution && describeNotebookExecution(execution);
+  const shownPage = page ?? savedResultPage(execution?.parameters ?? '{}');
+  const previous = result && previousResultPage(shownPage);
+  const next = result && nextResultPage(shownPage, result.has_more);
+  const pageSizes = [25, 50, 100, 200].includes(shownPage.limit) ? [25, 50, 100, 200] : [shownPage.limit, 25, 50, 100, 200].sort((a, b) => a - b);
   return <div className="notebook-output">
     <div className="notebook-result-meta"><div className="notebook-result-identity"><strong>{description?.operation ?? 'Saved execution'}</strong><span>{execution ? `Registered source: ${registeredSourceName(execution, sources)}` : 'Source unavailable'}</span></div>{description && <span className="notebook-result-summary">{description.summary}</span>}<small>{execution?.result_row_count ?? '—'} recorded rows{execution && <> · {new Date(execution.started_at).toLocaleString()}</>}</small></div>
-    {(!result && !attempt) || error ? <div className="notebook-unavailable">{error && <p role="status">Result unavailable: {error}</p>}{!error && <p>Load replays the saved operation against its pinned representation.</p>}<Button variant="secondary" size="small" onClick={() => setAttempt(value => value + 1)}>{error ? 'Retry result' : 'Load result'}</Button></div>
-      : !result ? <p className="notebook-muted" role="status">Replaying saved execution…</p>
-        : <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined} title={column.name}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j} className={numericColumnType.test(result.columns[j]?.data_type ?? '') ? 'notebook-number' : undefined} title={value ?? undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows matched this operation.</TableEmpty>}</div><p className="notebook-muted">Showing {result.rows.length} rows{result.has_more ? ' · more rows available in the original operation' : ''}. {attempt ? 'Replayed from the pinned representation, not a saved snapshot. Without a saved sort, row order may vary.' : 'From the latest execution. Reopening this notebook loads the result by replay.'}</p></>}
+    {!loaded && !loading && !error && <div className="notebook-unavailable"><p>Load replays the saved operation against its pinned representation.</p><Button variant="secondary" size="small" onClick={() => void loadPage()}>Load result</Button></div>}
+    {loading && <p className="notebook-muted" role="status">{result ? 'Loading another page… Previous page remains visible.' : 'Replaying saved execution…'}</p>}
+    {result && <>
+      <div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, i) => <TableHead key={i} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined} title={column.name}><span>{column.name}</span><small>{column.data_type}</small></TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, i) => <TableRow key={i}>{row.map((value, j) => <TableCell key={j} className={numericColumnType.test(result.columns[j]?.data_type ?? '') ? 'notebook-number' : undefined} title={value ?? undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>{shownPage.offset ? 'No rows at this offset.' : 'No rows matched this operation.'}</TableEmpty>}</div>
+      <div className="notebook-result-page"><span role="status">{resultRowRange(shownPage, result.rows.length, result.has_more)}</span><div className="notebook-result-page-actions"><label>Page size <Select value={shownPage.limit} disabled={loading} onChange={event => void loadPage({ offset: 0, limit: Number(event.target.value) })}>{pageSizes.map(size => <option key={size} value={size}>{size}</option>)}</Select></label><Button variant="secondary" size="small" disabled={loading || !previous} onClick={() => previous && void loadPage(previous)}>Previous</Button><Button variant="secondary" size="small" disabled={loading || !next} onClick={() => next && void loadPage(next)}>Next</Button></div></div>
+      <p className="notebook-muted">{result === initialResult ? 'From the latest execution. Reopening this notebook loads the result by replay.' : 'Replayed from the pinned representation, not a saved snapshot.'} Without a saved sort, row order may vary between pages.</p>
+    </>}
+    {error && <div className="notebook-unavailable"><p role="alert">{result ? 'Could not load the requested page. The previous page remains visible.' : 'Result unavailable.'} {error}</p><Button variant="secondary" size="small" onClick={() => void loadPage(retryPage ?? undefined)}>Retry result</Button></div>}
     <details><summary>Execution details</summary><small>Execution ID: {executionId}{execution && <><br/>Dataset ID: {execution.dataset_id}<br/>Source fingerprint: {execution.source_fingerprint}<br/>Recorded status: {execution.status}<br/>Engine: {execution.duckdb_version ? `DuckDB ${execution.duckdb_version}` : 'Unavailable'}</>}</small>{execution && <><div>Original parameters</div><pre>{execution.parameters}</pre></>}</details>
   </div>;
 }

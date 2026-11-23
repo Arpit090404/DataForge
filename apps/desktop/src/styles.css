@@ -256,6 +256,11 @@
 .notebook-unavailable{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-2) var(--space-panel) 0}
 .notebook-unavailable p{margin:0}
 .notebook-unavailable [role=status]{color:var(--color-warning)}
+.notebook-result-page{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-2) var(--space-panel);color:var(--color-text-muted);font-size:var(--font-size-secondary);font-variant-numeric:tabular-nums}
+.notebook-result-page-actions,.notebook-result-page-actions label{display:flex;align-items:center;gap:var(--space-2)}
+.notebook-result-page-actions{flex-wrap:wrap}
+.notebook-workspace .notebook-result-page select.ui-select{min-width:68px;width:72px;height:var(--control-height-small);min-height:var(--control-height-small);padding:0 var(--space-2)}
+.notebook-result-page .ui-button{min-width:64px}
 .notebook-add{padding:var(--space-3) 0 var(--space-page);border-top:1px solid var(--color-hover)}
 .notebook-add .ui-select{flex:1;min-width:0}
 .notebook-count{padding-bottom:var(--space-3)}

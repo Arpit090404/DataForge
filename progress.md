@@ -3,13 +3,19 @@
 **Updated:** 2026-11-23
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook Result pagination (2026-11-23)
+
+Result cells now request bounded pages of the original row-view or grouped-summary operation from `get_execution_result`. They show a row range, page size, and Previous/Next controls; a new page size starts at the first page. Empty/final pages stop navigation, loading retains the previous page, and failed page replay offers Retry. Page overrides are validated by Rust, use the saved pinned representation and existing cancellation/resource limits, and leave the execution ID, parameters, provenance, and history unchanged. The original saved page still loads when no override is supplied.
+
+**Verification:** `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml` passed 25/25 tests, including row/group pagination, bounds, absent source, unavailable representation, and unchanged history. `node tests/notebook-result-page.cjs` and `npm.cmd run build` passed in `apps/desktop`. A rendered fixture covered row/group final pages, page-size reset, empty state, and failed-page Retry at 1280 × 800; 900 × 600 DOM geometry had no document overflow, but screenshot capture failed. Native WebView2 ran a saved 25-row operation against a 54-row CSV and replayed 1–25, 26–50, and 51–54; Next disabled on the final page. Reopening the notebook retained the linked Result cell, and source execution history still contained one record. Native grouped-result pagination, cancellation during a slow replay, and unavailable representation UI were not exercised.
+
 ## Notebook typed analysis expansion (2026-11-23)
 
 The Notebook now exposes typed row filtering/sorting and grouped summaries with count, sum, average, minimum, maximum, and distinct count. The compact form reads registered source columns, supports flat AND/OR filters, up to three sort/group columns, up to six measures, and a 1–200 row page size. A successful run adds a Result cell; Edit analysis loads its saved configuration and a successful rerun updates the same cell's execution reference. Earlier executions and their provenance remain in history. Python/SQL Code execution remains unavailable. The backend retarget command validates the cell and successful project execution transactionally.
 
 **Verified:** `node tests/notebook-analysis.cjs`, desktop TypeScript, Notebook keyboard/Home/provenance tests, and `npm.cmd run build` passed; the production build needed filesystem access beyond the restricted sandbox to read Vite configuration. `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml` passed all 28 tests, including a row-to-group rerun/reopen workflow. Impeccable detection returned `[]`; `git diff --check` passed. A Tauri dev build launched WebView2 and exposed its accessibility tree, but native click-through failed with “coordinate input geometry is unavailable,” and the window capture was black. UI-to-host clicks, live cancellation, and visual layout remain unverified.
 
-**Limitations:** Notebook editing handles flat filter groups; a saved nested group can still be viewed/replayed but cannot be loaded into this form. Notebook results display the requested bounded page without page navigation. The source workspace retains its fuller nested filter and pagination controls.
+**Limitations:** Notebook editing handles flat filter groups; a saved nested group can still be viewed/replayed but cannot be loaded into this form. The source workspace retains its fuller nested filter controls.
 
 ## Notebook Count rows reliability sweep
 

@@ -86,6 +86,9 @@ pub(super) struct AnalyticsRequest {
     #[serde(default)] aggregations: Vec<Aggregation>,
     limit: Option<usize>, offset: Option<usize>,
 }
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ResultPage { offset: usize, limit: usize }
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct Execution {
     id: String, dataset_id: String, operation_type: String, parameters: String,
@@ -99,11 +102,15 @@ pub(super) struct AnalyticsResult { execution: Execution, columns: Vec<ResultCol
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ColumnDef { name: String, data_type: String, physical: String }
 
-fn validate_request(request: &AnalyticsRequest) -> Result<()> {
-    if request.kind != "rows" && request.kind != "group" { return Err(error("unsupported_operation", "Choose a supported analytical operation.")); }
-    if !(1..=200).contains(&request.limit.unwrap_or(100)) || request.offset.unwrap_or(0) > 100_000 {
+fn validate_page(offset: usize, limit: usize) -> Result<()> {
+    if !(1..=200).contains(&limit) || offset > 100_000 {
         return Err(error("invalid_limit", "Use 1–200 rows and an offset no greater than 100,000."));
     }
+    Ok(())
+}
+fn validate_request(request: &AnalyticsRequest) -> Result<()> {
+    if request.kind != "rows" && request.kind != "group" { return Err(error("unsupported_operation", "Choose a supported analytical operation.")); }
+    validate_page(request.offset.unwrap_or(0), request.limit.unwrap_or(100))?;
     if request.sort.len() > 3 || request.group_by.len() > 3 || request.aggregations.len() > 6 {
         return Err(error("invalid_operation", "Too many sort, group, or aggregation fields."));
     }
@@ -408,7 +415,8 @@ pub(super) fn list_executions_inner(project: &Path) -> Result<Vec<Execution>> {
         duckdb_version:r.get(9)?,source_fingerprint:r.get(10)? })).map_err(|_| analytics_error())?;
     entries.collect::<std::result::Result<Vec<_>,_>>().map_err(|_| analytics_error())
 }
-pub(super) fn get_execution_result_inner(project: &Path, id: &str, control: &AnalyticsControl) -> Result<AnalyticsResult> {
+pub(super) fn get_execution_result_inner(project: &Path, id: &str, page: Option<ResultPage>, control: &AnalyticsControl) -> Result<AnalyticsResult> {
+    if let Some(page) = page { validate_page(page.offset, page.limit)?; }
     let unavailable = || error("result_unavailable", "The saved result is unavailable because its execution or pinned representation cannot be replayed.");
     let metadata = db(project)?;
     let (execution, table, schema, representation_version): (Execution, String, String, String) = metadata.query_row(
@@ -419,12 +427,16 @@ pub(super) fn get_execution_result_inner(project: &Path, id: &str, control: &Ana
             completed_at:r.get(5)?,status:r.get(6)?,result_row_count:r.get::<_,Option<i64>>(7)?.map(|n|n as u64),error_summary:r.get(8)?,
             duckdb_version:r.get(9)?,source_fingerprint:r.get(10)? },r.get(11)?,r.get(12)?,r.get(13)?)))
         .map_err(|_| unavailable())?;
-    let request: AnalyticsRequest = serde_json::from_str(&execution.parameters).map_err(|_| unavailable())?;
+    let mut request: AnalyticsRequest = serde_json::from_str(&execution.parameters).map_err(|_| unavailable())?;
     let columns: Vec<ColumnDef> = serde_json::from_str(&schema).map_err(|_| unavailable())?;
     validate_request(&request).map_err(|_| unavailable())?;
     validate_representation(&table, &columns).map_err(|_| unavailable())?;
     if request.kind != execution.operation_type || execution.duckdb_version.as_deref() != Some(&representation_version) {
         return Err(unavailable());
+    }
+    if let Some(page) = page {
+        request.offset = Some(page.offset);
+        request.limit = Some(page.limit);
     }
     let path = project.join("analytics.duckdb");
     if !path.is_file() { return Err(unavailable()); }
@@ -509,6 +521,82 @@ mod tests {
             .unwrap_err().code,"invalid_filter");
     }
     #[test]
+    fn replay_page_rejects_invalid_bounds_before_opening_project() {
+        let control = AnalyticsControl::default();
+        for page in [ResultPage { offset: 0, limit: 0 }, ResultPage { offset: 0, limit: 201 },
+            ResultPage { offset: 100_001, limit: 1 }, ResultPage { offset: usize::MAX, limit: usize::MAX }] {
+            assert_eq!(get_execution_result_inner(Path::new("missing-project"), "missing", Some(page), &control)
+                .unwrap_err().code, "invalid_limit");
+        }
+        assert!(validate_page(100_000, 200).is_ok());
+        for json in [r#"{"offset":-1,"limit":1}"#, r#"{"offset":0,"limit":-1}"#,
+            r#"{"offset":0}"#, r#"{"offset":0,"limit":1,"sql":"SELECT 1"}"#] {
+            assert!(serde_json::from_str::<ResultPage>(json).is_err());
+        }
+        assert!(!control.is_running());
+    }
+    #[test]
+    fn replay_pages_preserve_pinned_operations_and_history() {
+        let root = std::env::temp_dir().join(format!("dataforge-analytics-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let project = create_project_inner("Pages", root.to_str().unwrap()).unwrap();
+        let p = Path::new(&project.project.path);
+        let source = root.join("sample.csv");
+        fs::write(&source, "Group,Value\nA,1\nA,3\nB,2\nC,4\nD,0\n").unwrap();
+        let dataset = register_csv_inner(p, source.to_str().unwrap()).unwrap();
+        let control = AnalyticsControl::default();
+        let rows = run_analytics_inner(p, &dataset.id, AnalyticsRequest {
+            kind: "rows".into(), filters: Some(FilterExpr::Gt { column: "Value".into(), value: "0".into() }),
+            sort: vec![SortSpec { column: "Value".into(), direction: "desc".into(), nulls: "last".into() }],
+            group_by: vec![], aggregations: vec![], limit: Some(1), offset: Some(1),
+        }, &control).unwrap();
+        let grouped = run_analytics_inner(p, &dataset.id, AnalyticsRequest {
+            kind: "group".into(), filters: Some(FilterExpr::Gt { column: "Value".into(), value: "0".into() }),
+            sort: vec![SortSpec { column: "n".into(), direction: "desc".into(), nulls: "last".into() },
+                SortSpec { column: "Group".into(), direction: "asc".into(), nulls: "last".into() }],
+            group_by: vec!["Group".into()], aggregations: vec![Aggregation { op: "count".into(), column: None, alias: "n".into() }],
+            limit: Some(1), offset: Some(1),
+        }, &control).unwrap();
+        fs::remove_file(&source).unwrap();
+        let history = serde_json::to_value(list_executions_inner(p).unwrap()).unwrap();
+        let cell_rows = |pairs: &[(&str, &str)]| pairs.iter().map(|(a,b)| vec![Some((*a).into()), Some((*b).into())]).collect::<Vec<Vec<Option<String>>>>();
+        for (saved, first, last, final_offset) in [
+            (&rows, cell_rows(&[("C", "4"), ("A", "3")]), cell_rows(&[("B", "2"), ("A", "1")]), 2),
+            (&grouped, cell_rows(&[("A", "2"), ("B", "1")]), cell_rows(&[("C", "1")]), 2),
+        ] {
+            let replay = |page| get_execution_result_inner(p, &saved.execution.id, page, &control).unwrap();
+            assert_eq!(replay(None).rows, saved.rows);
+            let first_page = replay(Some(ResultPage { offset: 0, limit: 2 }));
+            assert_eq!(first_page.rows, first);
+            assert!(first_page.has_more);
+            assert_eq!(serde_json::to_value(&first_page.execution).unwrap(), serde_json::to_value(&saved.execution).unwrap());
+            let final_page = replay(Some(ResultPage { offset: final_offset, limit: 2 }));
+            assert_eq!(final_page.rows, last);
+            assert!(!final_page.has_more);
+            for offset in [4, 100_000] {
+                let empty = replay(Some(ResultPage { offset, limit: 200 }));
+                assert!(empty.rows.is_empty());
+                assert!(!empty.has_more);
+            }
+        }
+        let (guard, _, _) = control.start(&rows.execution.id).unwrap();
+        assert_eq!(get_execution_result_inner(p, &rows.execution.id, Some(ResultPage { offset: 0, limit: 1 }), &control)
+            .unwrap_err().code, "analytics_busy");
+        cancel_execution_inner(&control, &rows.execution.id).unwrap();
+        drop(guard);
+        let metadata = db(p).unwrap();
+        let table: String = metadata.query_row("SELECT table_name FROM representations LIMIT 1", [], |r| r.get(0)).unwrap();
+        drop(metadata);
+        let conn = DuckConnection::open(p.join("analytics.duckdb")).unwrap();
+        conn.execute_batch(&format!("DROP TABLE {table}")).unwrap();
+        drop(conn);
+        assert_eq!(get_execution_result_inner(p, &rows.execution.id, Some(ResultPage { offset: 0, limit: 1 }), &control)
+            .unwrap_err().code, "result_unavailable");
+        assert_eq!(serde_json::to_value(list_executions_inner(p).unwrap()).unwrap(), history);
+        assert!(!control.is_running());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn materializes_and_runs_fixed_operations() {
         let root=std::env::temp_dir().join(format!("dataforge-analytics-test-{}",uuid::Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
@@ -545,14 +633,14 @@ mod tests {
         assert_eq!(run_analytics_inner(project_path,&dataset.id,AnalyticsRequest{kind:"rows".into(),filters:None,
             sort:vec![],group_by:vec![],aggregations:vec![],limit:None,offset:None},&control).unwrap_err().code,"file_changed");
         fs::remove_file(&source).unwrap();
-        let replay = get_execution_result_inner(project_path, &rows.execution.id, &control).unwrap();
+        let replay = get_execution_result_inner(project_path, &rows.execution.id, None, &control).unwrap();
         assert_eq!(replay.rows, rows.rows);
         assert_eq!(list_executions_inner(project_path).unwrap().len(), 3);
-        assert_eq!(get_execution_result_inner(project_path, "unknown", &control).unwrap_err().code, "result_unavailable");
+        assert_eq!(get_execution_result_inner(project_path, "unknown", None, &control).unwrap_err().code, "result_unavailable");
         let metadata = db(project_path).unwrap();
         metadata.execute("UPDATE representations SET duckdb_version='obsolete' WHERE id=(SELECT representation_id FROM executions WHERE id=?1)", [&rows.execution.id]).unwrap();
         drop(metadata);
-        assert_eq!(get_execution_result_inner(project_path, &rows.execution.id, &control).unwrap_err().code, "result_unavailable");
+        assert_eq!(get_execution_result_inner(project_path, &rows.execution.id, None, &control).unwrap_err().code, "result_unavailable");
         assert!(run_analytics_inner(project_path,&dataset.id,AnalyticsRequest{kind:"rows".into(),filters:None,
             sort:vec![],group_by:vec![],aggregations:vec![],limit:None,offset:None},&control).is_err());
         fs::remove_dir_all(root).unwrap();
@@ -587,15 +675,15 @@ mod tests {
         fs::remove_file(&source).unwrap();
         assert_eq!(run_analytics_inner(path, &dataset.id, request(), &control).unwrap_err().code, "file_changed");
         assert_eq!(list_executions_inner(path).unwrap().len(), 1);
-        let replay = get_execution_result_inner(path, &id, &control).unwrap();
+        let replay = get_execution_result_inner(path, &id, None, &control).unwrap();
         assert_eq!(replay.rows, result.rows);
         assert_eq!(replay.execution.source_fingerprint, result.execution.source_fingerprint);
         let store = path.join("analytics.duckdb");
         let backup = path.join("analytics-unavailable.duckdb");
         fs::rename(&store, &backup).unwrap();
-        assert_eq!(get_execution_result_inner(path, &id, &control).unwrap_err().code, "result_unavailable");
+        assert_eq!(get_execution_result_inner(path, &id, None, &control).unwrap_err().code, "result_unavailable");
         fs::rename(&backup, &store).unwrap();
-        assert_eq!(get_execution_result_inner(path, &id, &control).unwrap().rows, result.rows);
+        assert_eq!(get_execution_result_inner(path, &id, None, &control).unwrap().rows, result.rows);
 
         let empty = root.join("empty.csv");
         fs::write(&empty, "Value\n").unwrap();
@@ -626,7 +714,7 @@ mod tests {
         crate::open_project_inner(path.to_str().unwrap()).unwrap();
         let reopened=serde_json::to_value(crate::notebook::get_notebook_inner(path,note_id).unwrap()).unwrap();
         assert_eq!(reopened["blocks"].as_array().unwrap().len(),1);assert_eq!(reopened["blocks"][0]["execution_id"].as_str(),Some(second.execution.id.as_str()));
-        assert_eq!(get_execution_result_inner(path,&second.execution.id,&control).unwrap().rows,second.rows);
+        assert_eq!(get_execution_result_inner(path,&second.execution.id,None,&control).unwrap().rows,second.rows);
         assert_eq!(list_executions_inner(path).unwrap().len(),2);
         fs::remove_dir_all(root).unwrap();
     }
