@@ -1,7 +1,11 @@
 # DataForge progress
 
-**Updated:** 2026-11-23
+**Updated:** 2026-11-24
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
+
+## Notebook v2 sync with main (2026-11-24)
+
+Merged `origin/main` into `notebook-v2` after the nested filter work landed in main. The only conflict was this progress record; both the nested filter entry and the separate SQL isolation evidence remain. `npm.cmd run build` passed, including design-system and form-control checks, TypeScript, and Vite. `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml` passed 30/30 Rust tests. `node tests/notebook-analysis.cjs` and `node tests/notebook-filter-form.cjs` passed. The Vite and form-render commands needed filesystem access beyond the restricted sandbox, as in their prior verification records. Native UI and SQL isolation behavior were not rerun for this merge.
 
 ## Disposable Windows SQL worker isolation proof (2026-11-24)
 
