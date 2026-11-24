@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use tauri::State;
 
 mod analytics;
+pub fn run_sql_worker() -> i32 { analytics::sql_worker_main() }
 mod notebook;
 
 const SCHEMA_VERSION: i64 = 4;
@@ -348,6 +349,17 @@ async fn run_analytics(dataset_id: String, request: analytics::AnalyticsRequest,
         .await.map_err(|_| storage_error())?
 }
 #[tauri::command]
+async fn run_notebook_sql(dataset_id: String, block_id: String, sql: String, execution_id: String,
+    state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<analytics::AnalyticsResult> {
+    let project = active(&state)?;
+    if uuid::Uuid::parse_str(&execution_id).ok().filter(|id| id.get_version_num() == 4 && id.to_string() == execution_id).is_none() {
+        return Err(error("invalid_execution_id", "Expected a canonical version 4 execution ID."));
+    }
+    let control = control.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || analytics::run_notebook_sql_inner(&project, &dataset_id, &block_id, &sql, &control, execution_id))
+        .await.map_err(|_| storage_error())?
+}
+#[tauri::command]
 async fn list_executions(state: State<'_, ActiveProject>) -> Result<Vec<analytics::Execution>> {
     let project = active(&state)?;
     tauri::async_runtime::spawn_blocking(move || analytics::list_executions_inner(&project)).await.map_err(|_| storage_error())?
@@ -426,7 +438,7 @@ pub fn run() {
         .manage(ActiveProject(Mutex::new(None)))
         .manage(analytics::AnalyticsControl::default())
         .invoke_handler(tauri::generate_handler![create_project, open_project, register_csv, list_datasets, inspect_csv,
-            run_analytics, list_executions, cancel_execution, active_execution, export_result,
+            run_analytics, run_notebook_sql, list_executions, cancel_execution, active_execution, export_result,
             list_notebooks, get_notebook, create_notebook, rename_notebook, delete_notebook,
             add_block, update_block, update_result_block, delete_block, move_block, get_execution_result])
         .run(tauri::generate_context!()).expect("DataForge could not start");

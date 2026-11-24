@@ -1,6 +1,6 @@
-use std::{collections::HashSet, fs::{self, File}, io::Write, path::Path, sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex}, time::{Duration, Instant}};
+use std::{collections::HashSet, fs::{self, File}, io::{Read, Write}, path::{Path, PathBuf}, process::{Child, Command, Stdio}, sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex}, time::{Duration, Instant}};
 
-use duckdb::{appender_params_from_iter, params_from_iter, types::Value, Config, Connection as DuckConnection, InterruptHandle};
+use duckdb::{appender_params_from_iter, params_from_iter, types::{Value, ValueRef}, Config, Connection as DuckConnection, InterruptHandle};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ const QUERY_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Default)]
 pub(super) struct AnalyticsControl { running: Arc<Mutex<Option<Running>>> }
-struct Running { id: String, cancelled: Arc<AtomicBool>, interrupt: Option<Arc<InterruptHandle>> }
+struct Running { id: String, cancelled: Arc<AtomicBool>, interrupt: Option<Arc<InterruptHandle>>, child: Option<Arc<Mutex<Child>>> }
 struct RunGuard { control: AnalyticsControl, id: String, stop_timer: Option<mpsc::Sender<()>> }
 impl Drop for RunGuard {
     fn drop(&mut self) {
@@ -34,12 +34,22 @@ impl AnalyticsControl {
         if running.is_some() { return Err(error("analytics_busy", "Another analytical operation is already running.")); }
         let cancelled = Arc::new(AtomicBool::new(false));
         let timed_out = Arc::new(AtomicBool::new(false));
-        *running = Some(Running { id: id.into(), cancelled: cancelled.clone(), interrupt: None });
+        *running = Some(Running { id: id.into(), cancelled: cancelled.clone(), interrupt: None, child: None });
         Ok((RunGuard { control: self.clone(), id: id.into(), stop_timer: None }, cancelled, timed_out))
     }
     fn attach(&self, id: &str, interrupt: Arc<InterruptHandle>) -> Result<()> {
         let mut running = self.running.lock().map_err(|_| analytics_error())?;
         if let Some(current) = running.as_mut().filter(|r| r.id == id) { current.interrupt = Some(interrupt); Ok(()) }
+        else { Err(error("cancelled", "The operation was interrupted.")) }
+    }
+    fn attach_child(&self, id: &str, child: Arc<Mutex<Child>>) -> Result<()> {
+        let mut running = self.running.lock().map_err(|_| analytics_error())?;
+        if let Some(current) = running.as_mut().filter(|r| r.id == id) { current.child = Some(child); Ok(()) }
+        else { Err(error("cancelled", "The operation was interrupted.")) }
+    }
+    fn clear_interrupt(&self, id: &str) -> Result<()> {
+        let mut running = self.running.lock().map_err(|_| analytics_error())?;
+        if let Some(current) = running.as_mut().filter(|r| r.id == id) { current.interrupt = None; Ok(()) }
         else { Err(error("cancelled", "The operation was interrupted.")) }
     }
 }
@@ -50,6 +60,9 @@ pub(super) fn cancel_execution_inner(control: &AnalyticsControl, execution_id: &
     };
     current.cancelled.store(true, Ordering::Relaxed);
     if let Some(handle) = &current.interrupt { handle.interrupt(); }
+    let child = current.child.clone();
+    drop(running);
+    if let Some(child) = child { if let Ok(mut process) = child.lock() { let _ = process.kill(); } }
     Ok(())
 }
 fn check(cancelled: &AtomicBool, timed_out: &AtomicBool, deadline: Instant) -> Result<()> {
@@ -95,7 +108,7 @@ pub(super) struct Execution {
     started_at: String, completed_at: Option<String>, status: String,
     result_row_count: Option<u64>, error_summary: Option<String>, duckdb_version: Option<String>, source_fingerprint: String,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct ResultColumn { name: String, data_type: String }
 #[derive(Debug, Serialize)]
 pub(super) struct AnalyticsResult { execution: Execution, columns: Vec<ResultColumn>, rows: Vec<Vec<Option<String>>>, total_rows: Option<u64>, has_more: bool }
@@ -246,6 +259,34 @@ fn materialize(conn: &DuckConnection, path: &Path, table: &str, columns: &[Colum
     if result.is_err() { let _ = conn.execute_batch("ROLLBACK"); }
     result
 }
+fn representation_for(metadata: &rusqlite::Connection, conn: &DuckConnection, dataset: &crate::Dataset,
+    cancelled: &AtomicBool, timed_out: &AtomicBool, deadline: Instant) -> Result<(String, String, Vec<ColumnDef>, String)> {
+    let version = conn.version().map_err(|_| analytics_error())?;
+    let existing: Option<(String,String,String)> = metadata.query_row(
+        "SELECT id,table_name,schema_json FROM representations WHERE dataset_id=?1 AND source_fingerprint=?2 AND materializer_version=?3 AND duckdb_version=?4 AND status='ready'",
+        params![dataset.id,dataset.fingerprint,MATERIALIZER_VERSION,version], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))
+        .optional().map_err(|_| analytics_error())?;
+    let (id, table, columns) = if let Some((id,table,schema)) = existing {
+        let columns = serde_json::from_str::<Vec<ColumnDef>>(&schema).map_err(|_| analytics_error())?;
+        validate_representation(&table,&columns)?;
+        (id,table,columns)
+    } else {
+        let (size,_,hash) = source_info(Path::new(&dataset.path))?;
+        if size != dataset.size_bytes || hash != dataset.fingerprint { return Err(error("file_changed", "The CSV changed before materialization.")); }
+        let columns = infer_schema(Path::new(&dataset.path), cancelled, timed_out, deadline)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let table = format!("r_{}", uuid::Uuid::new_v4().simple());
+        validate_representation(&table,&columns)?;
+        materialize(conn,Path::new(&dataset.path),&table,&columns,cancelled,timed_out,deadline)?;
+        let (size_after,_,hash_after) = source_info(Path::new(&dataset.path))?;
+        if size_after != size || hash_after != hash { let _ = conn.execute_batch(&format!("DROP TABLE {table}")); return Err(error("file_changed", "The CSV changed during materialization.")); }
+        metadata.execute("INSERT INTO representations (id,dataset_id,source_fingerprint,table_name,duckdb_version,materializer_version,schema_json,created_at,status)
+            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'ready')", params![id,dataset.id,hash,table,version,MATERIALIZER_VERSION,
+            serde_json::to_string(&columns).map_err(|_| analytics_error())?,now()]).map_err(|_| analytics_error())?;
+        (id,table,columns)
+    };
+    Ok((id, table, columns, version))
+}
 fn compile_query(request: &AnalyticsRequest, columns: &[ColumnDef], table: &str) -> Result<(String, Vec<Value>, Vec<ResultColumn>)> {
     let mut values = Vec::new(); let mut count = 0;
     let where_sql = request.filters.as_ref().map(|f| compile_filter(f, columns, &mut values, 0, &mut count))
@@ -325,6 +366,222 @@ fn read_result(conn: &DuckConnection, request: &AnalyticsRequest, columns: &[Col
     rows.truncate(request.limit.unwrap_or(100));
     Ok((output,rows,has_more))
 }
+fn sql_value(value: ValueRef<'_>) -> Option<String> {
+    match value {
+        ValueRef::Null => None,
+        ValueRef::Text(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        ValueRef::Blob(bytes) => Some(format!("<binary: {} bytes>", bytes.len())),
+        ValueRef::Boolean(value) => Some(value.to_string()),
+        ValueRef::TinyInt(value) => Some(value.to_string()), ValueRef::SmallInt(value) => Some(value.to_string()),
+        ValueRef::Int(value) => Some(value.to_string()), ValueRef::BigInt(value) => Some(value.to_string()),
+        ValueRef::HugeInt(value) => Some(value.to_string()), ValueRef::UTinyInt(value) => Some(value.to_string()),
+        ValueRef::USmallInt(value) => Some(value.to_string()), ValueRef::UInt(value) => Some(value.to_string()),
+        ValueRef::UBigInt(value) => Some(value.to_string()), ValueRef::Float(value) => Some(value.to_string()),
+        ValueRef::Double(value) => Some(value.to_string()), ValueRef::Decimal(value) => Some(value.to_string()),
+        other => Some(format!("{other:?}")),
+    }
+}
+fn read_sql_result(conn: &DuckConnection, sql: &str, table: &str, source_columns: &[ColumnDef],
+    cancelled: &AtomicBool, timed_out: &AtomicBool, deadline: Instant) -> Result<(Vec<ResultColumn>,Vec<Vec<Option<String>>>,bool)> {
+    let alias = source_columns.iter().map(|column| format!("{} AS \"{}\"", column.physical, column.name.replace('"', "\"\""))).collect::<Vec<_>>().join(",");
+    let query = format!("WITH source AS (SELECT {alias} FROM {table}) {}", sql.trim().trim_end_matches(';'));
+    check(cancelled, timed_out, deadline)?;
+    let mut statement = conn.prepare(&query).map_err(|e| error("sql_error", e.to_string().chars().take(500).collect::<String>()))?;
+    let mut cursor = statement.query([]).map_err(|e| error("sql_error", e.to_string().chars().take(500).collect::<String>()))?;
+    let mut rows = Vec::new(); let mut bytes = 0usize;
+    while let Some(row) = cursor.next().map_err(|e| error("sql_error", e.to_string().chars().take(500).collect::<String>()))? {
+        check(cancelled, timed_out, deadline)?;
+        if row.as_ref().column_count() > MAX_COLUMNS { return Err(error("result_limit", "The SQL result has more than 128 columns.")); }
+        let mut cells = Vec::with_capacity(row.as_ref().column_count());
+        for index in 0..row.as_ref().column_count() {
+            let value = sql_value(row.get_ref(index).map_err(|_| analytics_error())?);
+            bytes += value.as_ref().map_or(0, String::len);
+            if bytes > MAX_RESULT_BYTES { return Err(error("result_limit", "The SQL result exceeds 1 MB. Select fewer or narrower values.")); }
+            cells.push(value);
+        }
+        rows.push(cells);
+        if rows.len() > 200 { break; }
+    }
+    drop(cursor);
+    let names = statement.column_names();
+    if names.len() > MAX_COLUMNS { return Err(error("result_limit", "The SQL result has more than 128 columns.")); }
+    let output = names.into_iter().enumerate().map(|(index, name)| {
+        let data_type = format!("{:?}", statement.column_type(index));
+        ResultColumn { name, data_type: if data_type.starts_with("Int") || data_type.starts_with("UInt") { "integer" }
+            else if data_type.starts_with("Float") || data_type.starts_with("Decimal") { "decimal" } else { "text" }.into() }
+    }).collect();
+    let has_more = rows.len() > 200;
+    rows.truncate(200);
+    Ok((output,rows,has_more))
+}
+
+#[derive(Serialize, Deserialize)]
+struct SqlWorkerRequest { protocol_version: u32, database: PathBuf, table: String, columns: Vec<ColumnDef>, version: String, sql: String }
+#[derive(Serialize, Deserialize)]
+struct SqlWorkerResponse {
+    protocol_version: u32,
+    columns: Vec<ResultColumn>, rows: Vec<Vec<Option<String>>>, has_more: bool,
+    error_code: Option<String>, error_message: Option<String>,
+}
+const WORKER_MARKER: &str = "DATAFORGE_SQL_WORKER:";
+
+pub fn sql_worker_main() -> i32 {
+    let response = (|| -> Result<SqlWorkerResponse> {
+        let mut input = String::new();
+        std::io::stdin().take(32 * 1024).read_to_string(&mut input).map_err(|_| analytics_error())?;
+        let request: SqlWorkerRequest = serde_json::from_str(&input).map_err(|_| analytics_error())?;
+        if request.protocol_version != 1 { return Err(analytics_error()); }
+        let config = Config::default().access_mode(duckdb::AccessMode::ReadOnly)
+            .and_then(|c|c.enable_external_access(false)).and_then(|c|c.enable_autoload_extension(false))
+            .and_then(|c|c.max_memory("256MB")).and_then(|c|c.threads(2))
+            .and_then(|c|c.with("max_temp_directory_size","256MB")).and_then(|c|c.with("lock_configuration","true"))
+            .map_err(|_| analytics_error())?;
+        let conn = DuckConnection::open_with_flags(&request.database, config).map_err(|_| analytics_error())?;
+        if conn.version().map_err(|_| analytics_error())? != request.version {
+            return Err(error("result_unavailable", "The analytical representation uses another DuckDB version."));
+        }
+        let cancelled = AtomicBool::new(false);
+        let timed_out = AtomicBool::new(false);
+        let (columns, rows, has_more) = read_sql_result(&conn, &request.sql, &request.table, &request.columns,
+            &cancelled, &timed_out, Instant::now() + QUERY_DEADLINE)?;
+        Ok(SqlWorkerResponse { protocol_version: 1, columns, rows, has_more, error_code: None, error_message: None })
+    })().unwrap_or_else(|failure| SqlWorkerResponse {
+        protocol_version: 1, columns: vec![], rows: vec![], has_more: false,
+        error_code: Some(failure.code.into()), error_message: Some(failure.message),
+    });
+    let Ok(json) = serde_json::to_string(&response) else { return 1 };
+    if writeln!(std::io::stdout(), "{WORKER_MARKER}{json}").is_err() { return 1 }
+    0
+}
+
+fn sql_worker_command() -> Result<Command> {
+    let executable = std::env::current_exe().map_err(|_| analytics_error())?;
+    let mut command = Command::new(executable);
+    #[cfg(test)] {
+        command.args(["--exact", "analytics::tests::sql_worker_child_entry", "--nocapture"]);
+        command.env("DATAFORGE_SQL_WORKER_TEST", "1");
+    }
+    #[cfg(not(test))] { command.arg("--dataforge-sql-worker"); }
+    #[cfg(windows)] {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    Ok(command)
+}
+
+fn execute_sql_worker(request: &SqlWorkerRequest, control: &AnalyticsControl, execution_id: &str,
+    cancelled: &AtomicBool, timed_out: &AtomicBool, deadline: Instant) -> Result<SqlWorkerResponse> {
+    let payload = serde_json::to_vec(request).map_err(|_| analytics_error())?;
+    if payload.len() > 32 * 1024 { return Err(error("invalid_sql", "The SQL request is too large.")); }
+    let mut child = sql_worker_command()?.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .spawn().map_err(|_| error("sql_worker_error", "The SQL worker could not start."))?;
+    let stdout = child.stdout.take().ok_or_else(analytics_error)?;
+    let mut stdin = child.stdin.take().ok_or_else(analytics_error)?;
+    let child = Arc::new(Mutex::new(child));
+    control.attach_child(execution_id, child.clone())?;
+    stdin.write_all(&payload).map_err(|_| error("sql_worker_error", "The SQL worker stopped before reading the query."))?;
+    drop(stdin);
+    let reader = std::thread::spawn(move || { let mut output = Vec::new();
+        stdout.take((MAX_RESULT_BYTES * 8) as u64).read_to_end(&mut output).map(|_| output) });
+    let status = loop {
+        if let Err(failure) = check(cancelled, timed_out, deadline) {
+            if let Ok(mut process) = child.lock() { let _ = process.kill(); let _ = process.wait(); }
+            let _ = reader.join();
+            return Err(failure);
+        }
+        if let Ok(mut process) = child.lock() {
+            if let Some(status) = process.try_wait().map_err(|_| analytics_error())? { break status; }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let output = reader.join().map_err(|_| analytics_error())?.map_err(|_| analytics_error())?;
+    if !status.success() { return Err(error("sql_worker_error", "DuckDB could not execute this SQL query.")); }
+    let text = std::str::from_utf8(&output).map_err(|_| analytics_error())?;
+    let json = text.lines().find_map(|line| line.strip_prefix(WORKER_MARKER))
+        .ok_or_else(|| error("sql_worker_error", "The SQL worker returned no result."))?;
+    let response: SqlWorkerResponse = serde_json::from_str(json).map_err(|_| analytics_error())?;
+    if response.protocol_version != 1 || response.rows.len() > 200 || response.columns.len() > MAX_COLUMNS ||
+        response.rows.iter().any(|row| row.len() != response.columns.len()) ||
+        response.rows.iter().flatten().flatten().map(String::len).sum::<usize>() > MAX_RESULT_BYTES {
+        return Err(error("sql_worker_error", "The SQL worker returned an invalid result."));
+    }
+    if let Some(code) = &response.error_code {
+        let allowed = match code.as_str() { "sql_error" => "sql_error", "result_limit" => "result_limit",
+            "timeout" => "timeout", "result_unavailable" => "result_unavailable", _ => "sql_worker_error" };
+        return Err(error(allowed, response.error_message.unwrap_or_else(|| "SQL execution failed.".into())));
+    }
+    Ok(response)
+}
+
+pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id: &str, sql: &str,
+    control: &AnalyticsControl, execution_id: String) -> Result<AnalyticsResult> {
+    if sql.len() > 8192 || sql.contains('\0') {
+        return Err(error("invalid_sql", "Enter one SELECT query of at most 8 KB."));
+    }
+    let metadata = db(project)?;
+    let (saved_sql, language): (String,String) = metadata.query_row(
+        "SELECT content,language FROM notebook_blocks WHERE id=?1 AND kind='code'", [block_id], |r| Ok((r.get(0)?,r.get(1)?)))
+        .map_err(|_| error("invalid_block", "Choose a saved SQL Code cell."))?;
+    if language != "sql" || saved_sql != sql { return Err(error("invalid_block", "Save the SQL Code cell before running it.")); }
+    let dataset = list_datasets_inner(&metadata)?.into_iter().find(|item| item.id == dataset_id)
+        .ok_or_else(|| error("dataset_missing", "Choose a registered source."))?;
+    if dataset.status != "ready" { return Err(error("file_changed", "The source is missing or changed. Review it before running SQL.")); }
+    if dataset.size_bytes > MAX_SOURCE_BYTES { return Err(error("dataset_limit", "This CSV exceeds the 64 MB analytical limit.")); }
+    let (_guard, cancelled, timed_out) = control.start(&execution_id)?;
+    let deadline = Instant::now() + QUERY_DEADLINE;
+    let project_id: String = metadata.query_row("SELECT id FROM project LIMIT 1", [], |r| r.get(0)).map_err(|_| analytics_error())?;
+    let parameters = serde_json::json!({"version":1,"sql":sql,"code_block_id":block_id,"source_alias":"source","limit":200}).to_string();
+    let started_at = now();
+    metadata.execute("INSERT INTO executions (id,project_id,dataset_id,source_fingerprint,operation_type,parameters,started_at,status,schema_version)
+        VALUES (?1,?2,?3,?4,'sql',?5,?6,'running',2)", params![execution_id,project_id,dataset_id,dataset.fingerprint,parameters,started_at])
+        .map_err(|_| analytics_error())?;
+    let work = (|| {
+        let statement = sql.trim().trim_end_matches(';');
+        if statement.contains(';') || statement.split_whitespace().next().is_none_or(|first| !first.eq_ignore_ascii_case("select")) {
+            return Err(error("invalid_sql", "Enter one SELECT query of at most 8 KB."));
+        }
+        let config = Config::default().enable_external_access(false).and_then(|c|c.enable_autoload_extension(false))
+            .and_then(|c|c.max_memory("256MB")).and_then(|c|c.threads(2))
+            .and_then(|c|c.with("max_temp_directory_size","256MB")).map_err(|_| analytics_error())?;
+        let conn = DuckConnection::open_with_flags(project.join("analytics.duckdb"),config).map_err(|_| analytics_error())?;
+        let interrupt = conn.interrupt_handle();
+        control.attach(&execution_id, interrupt.clone())?;
+        let (stop, wake) = mpsc::channel();
+        let timeout_flag = timed_out.clone();
+        let timer = std::thread::spawn(move || if wake.recv_timeout(QUERY_DEADLINE).is_err() {
+            timeout_flag.store(true, Ordering::Relaxed); interrupt.interrupt();
+        });
+        let materialized = representation_for(&metadata, &conn, &dataset, &cancelled, &timed_out, deadline);
+        let _ = stop.send(());
+        let _ = timer.join();
+        let (representation_id, table, columns, version) = materialized?;
+        control.clear_interrupt(&execution_id)?;
+        drop(conn);
+        check(&cancelled,&timed_out,deadline)?;
+        metadata.execute("UPDATE executions SET representation_id=?1,duckdb_version=?2 WHERE id=?3",
+            params![representation_id,version,execution_id]).map_err(|_| analytics_error())?;
+        let response = execute_sql_worker(&SqlWorkerRequest { protocol_version: 1, database: project.join("analytics.duckdb"), table,
+            columns, version: version.clone(), sql: sql.into() }, control, &execution_id, &cancelled, &timed_out, deadline)?;
+        check(&cancelled,&timed_out,deadline)?;
+        let completed_at = now();
+        metadata.execute("UPDATE executions SET representation_id=?1,completed_at=?2,status='succeeded',result_row_count=?3,duckdb_version=?4 WHERE id=?5",
+            params![representation_id,completed_at,response.rows.len() as i64,version,execution_id]).map_err(|_| analytics_error())?;
+        Ok(AnalyticsResult { execution:Execution { id:execution_id.clone(),dataset_id:dataset_id.into(),operation_type:"sql".into(),
+            parameters:parameters.clone(),started_at:started_at.clone(),completed_at:Some(completed_at),status:"succeeded".into(),
+            result_row_count:Some(response.rows.len() as u64),error_summary:None,duckdb_version:Some(version),source_fingerprint:dataset.fingerprint.clone() },
+            columns:response.columns,rows:response.rows,total_rows:None,has_more:response.has_more })
+    })().or_else(|failure| {
+        if timed_out.load(Ordering::Relaxed) { Err(error("timeout", "The SQL query exceeded the 30-second limit.")) }
+        else if cancelled.load(Ordering::Relaxed) { Err(error("cancelled", "The SQL query was cancelled.")) }
+        else { Err(failure) }
+    });
+    if let Err(ref failure) = work {
+        let status = if failure.code == "cancelled" {"cancelled"} else if failure.code == "timeout" {"interrupted"} else {"failed"};
+        let _ = metadata.execute("UPDATE executions SET completed_at=?1,status=?2,error_summary=?3 WHERE id=?4",
+            params![now(),status,failure.message,execution_id]);
+    }
+    work
+}
 
 #[cfg(test)]
 pub(super) fn run_analytics_inner(project: &Path, dataset_id: &str, request: AnalyticsRequest, control: &AnalyticsControl) -> Result<AnalyticsResult> {
@@ -360,30 +617,7 @@ pub(super) fn run_analytics_with_id(project: &Path, dataset_id: &str, request: A
             timeout_flag.store(true, Ordering::Relaxed); cancel_flag.store(true, Ordering::Relaxed); interrupt.interrupt();
         });
         guard.stop_timer = Some(stop);
-        let version = conn.version().map_err(|_| analytics_error())?;
-        let existing: Option<(String,String,String)> = metadata.query_row(
-            "SELECT id,table_name,schema_json FROM representations WHERE dataset_id=?1 AND source_fingerprint=?2 AND materializer_version=?3 AND duckdb_version=?4 AND status='ready'",
-            params![dataset_id,dataset.fingerprint,MATERIALIZER_VERSION,version], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))
-            .optional().map_err(|_| analytics_error())?;
-        let (representation_id, table, columns) = if let Some((id,table,schema)) = existing {
-            let columns = serde_json::from_str::<Vec<ColumnDef>>(&schema).map_err(|_| analytics_error())?;
-            validate_representation(&table,&columns)?;
-            (id,table,columns)
-        } else {
-            let (size,_,hash) = source_info(Path::new(&dataset.path))?;
-            if size != dataset.size_bytes || hash != dataset.fingerprint { return Err(error("file_changed", "The CSV changed before materialization.")); }
-            let columns = infer_schema(Path::new(&dataset.path), &cancelled, &timed_out, deadline)?;
-            let id = uuid::Uuid::new_v4().to_string();
-            let table = format!("r_{}", uuid::Uuid::new_v4().simple());
-            validate_representation(&table,&columns)?;
-            materialize(&conn,Path::new(&dataset.path),&table,&columns,&cancelled,&timed_out,deadline)?;
-            let (size_after,_,hash_after) = source_info(Path::new(&dataset.path))?;
-            if size_after != size || hash_after != hash { let _ = conn.execute_batch(&format!("DROP TABLE {table}")); return Err(error("file_changed", "The CSV changed during materialization.")); }
-            metadata.execute("INSERT INTO representations (id,dataset_id,source_fingerprint,table_name,duckdb_version,materializer_version,schema_json,created_at,status)
-                VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'ready')", params![id,dataset_id,hash,table,version,MATERIALIZER_VERSION,
-                serde_json::to_string(&columns).map_err(|_| analytics_error())?,now()]).map_err(|_| analytics_error())?;
-            (id,table,columns)
-        };
+        let (representation_id, table, columns, version) = representation_for(&metadata, &conn, &dataset, &cancelled, &timed_out, deadline)?;
         check(&cancelled,&timed_out,deadline)?;
         let (output,rows,has_more) = read_result(&conn,&request,&columns,&table,&cancelled,&timed_out,deadline)?;
         check(&cancelled,&timed_out,deadline)?;
@@ -498,6 +732,12 @@ pub(super) fn export_result_inner(path: &str, columns: &[String], rows: &[Vec<Op
 mod tests {
     use super::*;
     use crate::{create_project_inner, register_csv_inner};
+    #[test]
+    fn sql_worker_child_entry() {
+        if std::env::var("DATAFORGE_SQL_WORKER_TEST").ok().as_deref() == Some("1") {
+            std::process::exit(sql_worker_main());
+        }
+    }
     #[test]
     fn rejects_unknown_sql_surface() {
         let req = AnalyticsRequest {kind:"rows".into(),filters:Some(FilterExpr::Eq{column:"x; DROP TABLE t".into(),value:"1".into()}),
@@ -790,5 +1030,67 @@ mod tests {
         assert_eq!(history.iter().filter(|e|e.status=="succeeded").count(),2);
         assert_eq!(history.iter().filter(|e|e.status=="failed").count(),2);
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn trusted_notebook_sql_is_bounded_read_only_and_recorded() {
+        let root=std::env::temp_dir().join(format!("dataforge-sql-test-{}",uuid::Uuid::new_v4())); fs::create_dir(&root).unwrap();
+        let project=create_project_inner("SQL",root.to_str().unwrap()).unwrap(); let p=Path::new(&project.project.path);
+        let source=root.join("sample.csv"); fs::write(&source,"Name,Value\nAda,10\nBob,20\n").unwrap();
+        let dataset=register_csv_inner(p,source.to_str().unwrap()).unwrap(); let original=fs::read(&source).unwrap();
+        let notebook=serde_json::to_value(crate::notebook::create_notebook_inner(p,"Queries").unwrap()).unwrap();
+        let sql="SELECT Name, Value FROM source ORDER BY Name";
+        let block=serde_json::to_value(crate::notebook::add_block_inner(p,notebook["id"].as_str().unwrap(),"code",sql,None,None,None,Some("sql")).unwrap()).unwrap();
+        let block_id=block["id"].as_str().unwrap();
+        let control=AnalyticsControl::default();
+        let run=|text: &str| run_notebook_sql_inner(p,&dataset.id,block_id,text,&control,uuid::Uuid::new_v4().to_string());
+        let result=run(sql).unwrap();
+        assert_eq!(result.rows,vec![vec![Some("Ada".into()),Some("10".into())],vec![Some("Bob".into()),Some("20".into())]]);
+        assert_eq!(result.columns.len(),2); assert!(!result.has_more);
+        assert_eq!(result.execution.operation_type,"sql");
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&result.execution.parameters).unwrap()["sql"],sql);
+        assert_eq!(run("SELECT 1").unwrap_err().code,"invalid_block");
+        crate::notebook::update_block_inner(p,block_id,"SELECT Name FROM source WHERE 1=0",Some("sql")).unwrap();
+        let empty=run("SELECT Name FROM source WHERE 1=0").unwrap();
+        assert!(empty.rows.is_empty()); assert_eq!(empty.columns[0].name,"Name");
+        crate::notebook::update_block_inner(p,block_id,"SELECT Name FROM source, range(1000)",Some("sql")).unwrap();
+        let bounded=run("SELECT Name FROM source, range(1000)").unwrap();
+        assert_eq!(bounded.rows.len(),200); assert!(bounded.has_more);
+        let wide = format!("SELECT {} FROM source",(0..129).map(|n|format!("1 AS c{n}")).collect::<Vec<_>>().join(","));
+        crate::notebook::update_block_inner(p,block_id,&wide,Some("sql")).unwrap();
+        assert_eq!(run(&wide).unwrap_err().code,"result_limit");
+        crate::notebook::update_block_inner(p,block_id,"SELECT repeat('x', 600000) FROM source",Some("sql")).unwrap();
+        assert_eq!(run("SELECT repeat('x', 600000) FROM source").unwrap_err().code,"result_limit");
+        for forbidden in ["DELETE FROM source", "SELECT * FROM read_text('C:/Windows/win.ini')", "SELECT 1; DELETE FROM source", "SELECT FROM source"] {
+            crate::notebook::update_block_inner(p,block_id,forbidden,Some("sql")).unwrap();
+            let failure=run(forbidden).unwrap_err();
+            if forbidden == "SELECT FROM source" { assert_eq!(failure.code,"sql_worker_error"); }
+        }
+        crate::notebook::update_block_inner(p,block_id,"SELECT sum(i) FROM range(1000000000000) t(i)",Some("sql")).unwrap();
+        let cancellation_id=uuid::Uuid::new_v4().to_string();
+        std::thread::scope(|scope| {
+            let id=cancellation_id.clone();
+            let task=scope.spawn(|| run_notebook_sql_inner(p,&dataset.id,block_id,
+                "SELECT sum(i) FROM range(1000000000000) t(i)",&control,id));
+            let wait_until=Instant::now()+Duration::from_secs(5);
+            while Instant::now()<wait_until && !control.running.lock().unwrap().as_ref().is_some_and(|r|r.child.is_some()) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(control.running.lock().unwrap().as_ref().is_some_and(|r|r.child.is_some()));
+            cancel_execution_inner(&control,&cancellation_id).unwrap();
+            assert_eq!(task.join().unwrap().unwrap_err().code,"cancelled");
+        });
+        crate::notebook::update_block_inner(p,block_id,sql,Some("sql")).unwrap();
+        assert_eq!(run(sql).unwrap().rows.len(),2);
+        assert_eq!(fs::read(&source).unwrap(),original);
+        let history=list_executions_inner(p).unwrap();
+        assert_eq!(history.len(),11); assert_eq!(history.iter().filter(|item|item.status=="failed").count(),6);
+        assert_eq!(history.iter().filter(|item|item.status=="cancelled").count(),1);
+        let metadata=db(p).unwrap();
+        let (schema_version,representation_id):(i64,Option<String>)=metadata.query_row("SELECT schema_version,representation_id FROM executions WHERE id=?1",[result.execution.id],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(schema_version,2); assert!(representation_id.is_some());
+        let failed_sql=history.iter().find(|item|item.parameters.contains("read_text")).unwrap();
+        let failed_representation:Option<String>=metadata.query_row("SELECT representation_id FROM executions WHERE id=?1",[&failed_sql.id],|r|r.get(0)).unwrap();
+        assert_eq!(failed_representation,representation_id);
+        drop(metadata); fs::remove_dir_all(root).unwrap();
     }
 }

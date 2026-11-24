@@ -245,6 +245,13 @@
 .notebook-code-preview{padding:0}
 .notebook-code-preview pre{margin:0;font:inherit;color:var(--color-text);white-space:inherit}
 .notebook-code-output{border-top:1px solid var(--color-hover);padding:var(--space-2) var(--space-control-x);color:var(--color-text-muted);font-size:var(--font-size-meta);letter-spacing:.01em}
+.notebook-sql-panel{display:grid;gap:var(--space-2);min-width:0}
+.notebook-sql-controls,.notebook-sql-controls label{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.notebook-sql-controls .ui-select{max-width:100%}
+.notebook-sql-panel p{margin:0}
+.notebook-sql-disclosure{color:var(--color-text-muted)}
+.notebook-sql-panel .table-scroll{margin-top:var(--space-1)}
+.notebook-sql-panel details pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .notebook-output{min-width:0;padding:var(--space-3) 0;color:var(--color-text-secondary);font-size:var(--font-size-secondary);line-height:1.5;overflow-wrap:anywhere}
 .notebook-output>.notebook-muted,.notebook-output details,.notebook-result-meta{margin:0;padding-inline:var(--space-panel)}
 .notebook-output>.notebook-muted,.notebook-output details{margin-top:var(--space-2)}
