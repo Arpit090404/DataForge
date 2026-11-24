@@ -1,12 +1,16 @@
 # Execution security
 
-**Status:** Requirements baseline. A limited Rust-hosted CSV/DuckDB analytical path is implemented; the proposed worker, ACP, and arbitrary-code boundaries remain unimplemented.
+**Status:** Requirements baseline. Typed analytics and explicit trusted-user Notebook SQL are implemented; autonomous SQL, Python and OS-confined execution remain unavailable.
+
+## Trusted Notebook SQL boundary
+
+The explicit Notebook Run action accepts saved SQL Code cells and executes their query in a short-lived child of the desktop executable. The Rust host owns registered-source resolution, materialization, SQLite execution history, and acceptance of bounded output. The query child opens the analytical DuckDB database read-only with external access and extension autoload disabled. It has the same Windows user privileges as the host. Direct-child termination handles cancellation, deadline and native crash without treating a subprocess as a sandbox. It does not confine filesystem/network access or descendants, and does not impose hard CPU, memory or scratch quotas. Only user-initiated trusted SQL uses this path; agent SQL and Python remain disabled.
 
 ## Current local analytics boundary
 
-The Rust host accepts structured operations against a registered CSV ID, validates columns/operators, binds filter values, and constructs SQL only from application-owned expressions and generated physical names. DuckDB external access and extension autoload are disabled for these connections. The host limits source input to 64 MiB/250,000 rows, result pages to 200 rows/1 MiB, and one operation at a time, with best-effort 30-second interruption and user cancellation. These are application and DuckDB controls within the user's process identity, not filesystem/network isolation or a hard process resource boundary. The persistent DuckDB database is not subject to a proved disk quota; concurrent-host ownership and cross-store orphan recovery are not yet implemented. No Python worker or generated code runs in this slice.
+The typed analytics command accepts structured operations against a registered CSV ID, validates columns/operators, binds filter values, and constructs SQL only from application-owned expressions and generated physical names. DuckDB external access and extension autoload are disabled for these connections. The host limits source input to 64 MiB/250,000 rows, result pages to 200 rows/1 MiB, and one operation at a time, with best-effort 30-second interruption and user cancellation. These are application and DuckDB controls within the user's process identity, not filesystem/network isolation or a hard process resource boundary. The persistent DuckDB database is not subject to a proved disk quota; concurrent-host ownership and cross-store orphan recovery are not yet implemented. No Python worker or generated code runs in this slice.
 
-Proposed ADRs 0005–0008 define the initial SQL, agent, disclosure, and Python boundaries. None is verified by implementation tests. Arbitrary generated Python is deferred from the initial release.
+Proposed ADRs 0005â€“0008 define the initial SQL, agent, disclosure, and Python boundaries. None is verified by implementation tests. Arbitrary generated Python is deferred from the initial release.
 
 ## Threat model
 Treat generated Python/SQL, imported files, tool arguments, and artifact metadata as untrusted. Protect credentials and project boundaries. Assume accidental over-approval is possible.

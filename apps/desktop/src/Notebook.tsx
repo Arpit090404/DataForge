@@ -28,6 +28,32 @@ type Summary = { id: string; title: string; updated_at: string; block_count: num
 type Source = { id: string; name: string; status: string };
 const numericColumnType = /^(?:integer|decimal)$/;
 
+export function codeExecutionForBlock(executions: Execution[], blockId: string): Execution | undefined {
+  return executions.find(execution => {
+    if (execution.operation_type !== 'sql') return false;
+    try { return JSON.parse(execution.parameters).code_block_id === blockId; } catch { return false; }
+  });
+}
+
+export function SqlCodePanel({ sqlText, sources, sourceId, onSourceChange, result, execution, error, running, disabled, canCancel, onRun, onCancel }: {
+  sqlText: string; sources: Source[]; sourceId: string; onSourceChange: (id: string) => void;
+  result?: Result; execution?: Execution; error?: string; running: boolean; disabled: boolean; canCancel: boolean;
+  onRun: () => void; onCancel: () => void;
+}) {
+  const ready = sources.filter(source => source.status === 'ready');
+  const recordedSql = (() => { try { return JSON.parse(execution?.parameters ?? '{}').sql as string | undefined; } catch { return undefined; } })();
+  const duration = execution?.completed_at ? Date.parse(execution.completed_at) - Date.parse(execution.started_at) : NaN;
+  return <div className="notebook-sql-panel">
+    <div className="notebook-sql-controls"><label>Source <Select value={sourceId} disabled={disabled || running} onChange={event => onSourceChange(event.target.value)}><option value="">Choose source</option>{ready.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}</Select></label><Button type="button" variant="secondary" size="small" loading={running} disabled={disabled || !sourceId || !sqlText.trim()} onClick={onRun}>{running ? 'Running…' : 'Run SQL'}</Button>{running && <Button type="button" variant="ghost" size="small" disabled={!canCancel} onClick={onCancel}>Cancel</Button>}</div>
+    <p className="notebook-sql-disclosure">Runs locally with your account's privileges. DuckDB read-only settings are not an OS sandbox. Query the selected dataset as <code>source</code>.</p>
+    {running && <p role="status">Running SQL…</p>}
+    {error && <p className="inline-error" role="alert">{error}</p>}
+    {execution && <p className="notebook-muted">Latest run: {execution.status} · {Number.isFinite(duration) && duration >= 0 ? `${duration} ms` : 'duration unavailable'} · {sources.find(source => source.id === execution.dataset_id)?.name ?? 'Source unavailable'}{recordedSql !== sqlText ? ' · Code changed since run' : ''}</p>}
+    {result && <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, index) => <TableHead key={index} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined}>{column.name}</TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, index) => <TableRow key={index}>{row.map((value, column) => <TableCell key={column} className={numericColumnType.test(result.columns[column]?.data_type ?? '') ? 'notebook-number' : undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows returned.</TableEmpty>}</div><p className="notebook-muted">{result.rows.length} rows shown{result.has_more ? ' · more rows available' : ''}. Output is kept for this session; execution details remain in project history.</p></>}
+    {execution && <details><summary>SQL execution details</summary><small>Execution ID: {execution.id}<br/>Source fingerprint: {execution.source_fingerprint}<br/>DuckDB: {execution.duckdb_version ?? 'Unavailable'}</small><pre>{recordedSql}</pre></details>}
+  </div>;
+}
+
 function InsertionSlot({ disabled, insert, location }: { disabled: boolean; insert: (kind: 'code' | 'markdown') => void; location: string }) {
   return <div className="notebook-insertion"><div className="notebook-insertion-actions"><Button variant="secondary" size="small" type="button" aria-label={`Insert Code ${location}`} disabled={disabled} onClick={() => insert('code')}>+ Code</Button><Button variant="secondary" size="small" type="button" aria-label={`Insert Text ${location}`} disabled={disabled} onClick={() => insert('markdown')}>+ Text</Button></div></div>;
 }
@@ -121,6 +147,14 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   const [analysisNotice, setAnalysisNotice] = useState('');
   const [analysisError, setAnalysisError] = useState('');
   const [analysisResult, setAnalysisResult] = useState<Result | null>(null);
+  const [sqlExecutions, setSqlExecutions] = useState<Execution[]>([]);
+  const [sqlResults, setSqlResults] = useState<Record<string, Result>>({});
+  const [sqlErrors, setSqlErrors] = useState<Record<string, string>>({});
+  const [sqlSources, setSqlSources] = useState<Record<string, string>>({});
+  const [sqlRunId, setSqlRunId] = useState<string | null>(null);
+  const [sqlRunningBlock, setSqlRunningBlock] = useState<string | null>(null);
+  const [sqlCanCancel, setSqlCanCancel] = useState(false);
+  const pendingSql = useRef<string | null>(null);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [savingNotebook, setSavingNotebook] = useState(false);
@@ -174,7 +208,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     if (!active) return;
     let current = true;
     void loadList(listStatus === 'ready' ? 'refresh' : listStatus === 'error' ? 'retry' : 'initial');
-    invoke<Execution[]>('list_executions').then(runs => { if (current) setExecutions(runs.filter(run => run.status === 'succeeded')); }).catch(e => { if (current) setError(message(e)); });
+    invoke<Execution[]>('list_executions').then(runs => { if (current) { setExecutions(runs.filter(run => run.status === 'succeeded' && run.operation_type !== 'sql')); setSqlExecutions(runs.filter(run => run.operation_type === 'sql')); } }).catch(e => { if (current) setError(message(e)); });
     return () => { current = false; listRequest.current++; listPending.current = false; };
   }, [active]);
   async function action(work: () => Promise<void>) {
@@ -194,6 +228,13 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     const timer = window.setInterval(() => void poll(), 250);
     return () => { current = false; window.clearInterval(timer); };
   }, [analysisRunId]);
+  useEffect(() => {
+    if (!sqlRunId) return;
+    let current = true;
+    async function poll() { try { const id = await invoke<string | null>('active_execution'); if (current) setSqlCanCancel(id === sqlRunId); } catch { /* Run reports errors. */ } }
+    void poll(); const timer = window.setInterval(() => void poll(), 250);
+    return () => { current = false; window.clearInterval(timer); };
+  }, [sqlRunId]);
   useEffect(() => {
     if (!analysisSourceId || !sources.some(source => source.id === analysisSourceId && source.status === 'ready')) {
       setColumns([]); setSchemaError(''); setSchemaLoading(false); return;
@@ -270,7 +311,34 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       setAnalysisError(message(error));
     }
   }
-  async function load(id: string) { const next = await invoke<Notebook>('get_notebook', { id }); setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null); setTargetResultId(null); setAnalysisResult(null); setAnalysisSourceId(''); setConfiguration(defaultConfiguration()); setAnalysisNotice(''); setAnalysisError(''); if (next.blocks[0]) focusCell(next.blocks[0].id); }
+  async function runSql(block: Block) {
+    if (pendingSql.current || !notebook) return;
+    const sourceId = sqlSources[block.id] ?? (sources.filter(source => source.status === 'ready').length === 1 ? sources.find(source => source.status === 'ready')!.id : '');
+    if (!sourceId) { setSqlErrors(current => ({ ...current, [block.id]: 'Choose a ready source.' })); return; }
+    const sql = drafts[block.id] ?? block.content;
+    const id = crypto.randomUUID();
+    pendingSql.current = id; setSqlRunId(id); setSqlRunningBlock(block.id); setSqlCanCancel(false); setBusy(true);
+    setSqlErrors(current => ({ ...current, [block.id]: '' }));
+    setSqlResults(current => { const next = { ...current }; delete next[block.id]; return next; });
+    try {
+      await saveCell(block.id);
+      const result = await invoke<Result>('run_notebook_sql', { datasetId: sourceId, blockId: block.id, sql, executionId: id });
+      setSqlResults(current => ({ ...current, [block.id]: result }));
+      setSqlExecutions(current => [result.execution, ...current.filter(item => item.id !== id)]);
+    } catch (failure) {
+      setSqlErrors(current => ({ ...current, [block.id]: hasErrorCode(failure, 'cancelled') ? 'Query cancelled.' : message(failure) }));
+      try { setSqlExecutions((await invoke<Execution[]>('list_executions')).filter(item => item.operation_type === 'sql')); } catch { /* Original error remains visible. */ }
+    } finally {
+      pendingSql.current = null; setSqlRunId(null); setSqlRunningBlock(null); setSqlCanCancel(false); setBusy(false);
+    }
+  }
+  async function cancelSql() {
+    if (!sqlRunId || !sqlCanCancel) return;
+    setSqlCanCancel(false);
+    try { await invoke('cancel_execution', { executionId: sqlRunId }); }
+    catch (failure) { if (!hasErrorCode(failure, 'execution_missing') && sqlRunningBlock) setSqlErrors(current => ({ ...current, [sqlRunningBlock]: message(failure) })); }
+  }
+  async function load(id: string) { const next = await invoke<Notebook>('get_notebook', { id }); setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null); setTargetResultId(null); setAnalysisResult(null); setAnalysisSourceId(''); setConfiguration(defaultConfiguration()); setAnalysisNotice(''); setAnalysisError(''); setSqlResults({}); setSqlErrors({}); if (next.blocks[0]) focusCell(next.blocks[0].id); }
   async function reload(id = notebook?.id) { if (id) { setNotebook(await invoke<Notebook>('get_notebook', { id })); await refresh(); } }
   function select(id: string) { setSelectedId(id); if (editingId && editingId !== id) setEditingId(null); clearDelete(); }
   function focusCell(id: string) {
@@ -376,6 +444,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     focusCell(id);
   }
   const succeeded = executions.find(item => item.id === executionId);
+  const readySources = sources.filter(source => source.status === 'ready');
   const visibleNotebooks = sortNotebooks(filterNotebooks(notebooks, search), sort);
   const saveStatus = savingNotebook ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved';
   return <div className={`notebook-workspace ${notebook ? 'notebook-editor' : 'notebook-home'}`} onKeyDown={onKeyDown}>
@@ -438,7 +507,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
                   <section><h3>Command mode</h3><dl><div><dt>↑ / ↓</dt><dd>Select cell</dd></div><div><dt>Enter</dt><dd>Edit Code or Text</dd></div><div><dt>A / B</dt><dd>Insert Text above / below</dd></div><div><dt>D, D</dt><dd>Delete selected cell</dd></div></dl></section>
                   <section><h3>Editing</h3><dl><div><dt>Esc</dt><dd>Return to command mode</dd></div><div><dt>Tab</dt><dd>Indent Code</dd></div></dl></section>
                   <section><h3>Saving</h3><dl><div><dt>Ctrl+Enter</dt><dd>Save cell</dd></div><div><dt>Shift+Enter</dt><dd>Save cell, select next</dd></div><div><dt>Ctrl+S</dt><dd>Save notebook</dd></div></dl></section>
-                  <p>Code execution is unavailable.</p>
+                  <p>SQL Code cells run locally on registered sources. Python execution is unavailable.</p>
                 </div>
               </PopoverContent>
             </Popover>
@@ -449,6 +518,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
         const draft = drafts[block.id] ?? block.content; const language = languages[block.id] ?? block.language;
         const changed = draft !== block.content || language !== block.language; const selected = selectedId === block.id; const editing = editingId === block.id;
         const label = block.kind === 'markdown' ? 'Text' : block.kind === 'code' ? 'Code' : 'Result';
+        const sqlPanel = <SqlCodePanel sqlText={draft} sources={sources} sourceId={sqlSources[block.id] ?? (readySources.length === 1 ? readySources[0].id : '')} onSourceChange={id => setSqlSources(current => ({ ...current, [block.id]: id }))} result={sqlResults[block.id]} execution={codeExecutionForBlock(sqlExecutions, block.id)} error={sqlErrors[block.id]} running={sqlRunningBlock === block.id} disabled={busy || !!analysisRunId} canCancel={sqlCanCancel} onRun={() => void runSql(block)} onCancel={() => void cancelSql()}/>;
         return <Fragment key={block.id}><InsertionSlot disabled={busy} location={`before cell ${index + 1}`} insert={kind => void action(() => insert(kind, block.id, 'before'))}/><section ref={element => { cellRefs.current[block.id] = element; }} tabIndex={selected ? 0 : -1} aria-label={`${label} cell ${index + 1}`} className={`notebook-block${block.kind === 'code' ? ' notebook-block--code' : ''}${selected ? ' selected' : ''}${editing ? ' editing' : ''}`} onClick={event => onCellClick(event, block.id)}>
           <div className={`notebook-block-toolbar${changed || deleteArmed === block.id ? ' has-state' : ''}`}>{(changed || deleteArmed === block.id) && <span className="notebook-cell-state">{changed && <em>Unsaved</em>}{deleteArmed === block.id && <em>Press D again to delete</em>}</span>}{block.kind === 'code' && <Select aria-label={`Language for code cell ${index + 1}`} value={language ?? 'python'} disabled={busy} onChange={event => { const value = event.target.value as 'python' | 'sql'; setLanguages(current => { const next = { ...current }; if (value === block.language) delete next[block.id]; else next[block.id] = value; return next; }); }}><option value="python">Python</option><option value="sql">SQL</option></Select>}
             {selected && !editing && block.kind !== 'result' && <Button variant="ghost" size="small" aria-label={`Edit ${label} cell ${index + 1}`} disabled={busy} onClick={event => { event.stopPropagation(); setEditingId(block.id); }}>Edit {label}</Button>}
@@ -466,9 +536,9 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
               <DropdownMenuItem destructive disabled={busy} onClick={() => setPendingDelete({ kind: 'cell', id: block.id })}>Delete</DropdownMenuItem>
             </DropdownMenuContent></DropdownMenu></div>
           {block.kind === 'result' ? block.execution_id ? <ResultBlock key={block.execution_id} executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)} sources={sources} initialResult={analysisResult?.execution.id === block.execution_id ? analysisResult : undefined}/> : <p>Execution reference unavailable.</p>
-            : editing ? <>{block.kind === 'code' && <span className="notebook-code-prompt" aria-label="Editing code; execution unavailable">[*]</span>}<div className={block.kind === 'code' ? 'notebook-code-frame' : 'notebook-text-frame'}><Textarea ref={editorRef} rows={Math.max(3, draft.split('\n').length + 1)} className={block.kind === 'code' ? 'notebook-code-editor' : ''} aria-label={`${label} cell ${index + 1} editor`} value={draft} readOnly={busy} spellCheck={block.kind === 'markdown'} onKeyDown={event => { if (block.kind !== 'code' || event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return; event.preventDefault(); const [value, start, end] = indentCode(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd); setDrafts(current => ({ ...current, [block.id]: value })); cursor.current[block.id] = [start, end]; requestAnimationFrame(() => editorRef.current?.setSelectionRange(start, end)); }} onSelect={event => { cursor.current[block.id] = [event.currentTarget.selectionStart, event.currentTarget.selectionEnd]; }} onChange={event => { const value = event.target.value; setDrafts(current => { const next = { ...current }; if (value === block.content) delete next[block.id]; else next[block.id] = value; return next; }); }}/>{block.kind === 'code' && <div className="notebook-code-output">No output · execution unavailable</div>}</div></>
+            : editing ? <>{block.kind === 'code' && <span className="notebook-code-prompt" aria-label="Editing code; execution unavailable">[*]</span>}<div className={block.kind === 'code' ? 'notebook-code-frame' : 'notebook-text-frame'}><Textarea ref={editorRef} rows={Math.max(3, draft.split('\n').length + 1)} className={block.kind === 'code' ? 'notebook-code-editor' : ''} aria-label={`${label} cell ${index + 1} editor`} value={draft} readOnly={busy} spellCheck={block.kind === 'markdown'} onKeyDown={event => { if (block.kind !== 'code' || event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return; event.preventDefault(); const [value, start, end] = indentCode(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd); setDrafts(current => ({ ...current, [block.id]: value })); cursor.current[block.id] = [start, end]; requestAnimationFrame(() => editorRef.current?.setSelectionRange(start, end)); }} onSelect={event => { cursor.current[block.id] = [event.currentTarget.selectionStart, event.currentTarget.selectionEnd]; }} onChange={event => { const value = event.target.value; setDrafts(current => { const next = { ...current }; if (value === block.content) delete next[block.id]; else next[block.id] = value; return next; }); }}/>{block.kind === 'code' && <div className="notebook-code-output">{language === 'sql' ? sqlPanel : 'No output · Python execution unavailable'}</div>}</div></>
               : block.kind === 'markdown' ? <div className="notebook-preview" onDoubleClick={() => setEditingId(block.id)}><Markdown text={draft}/></div>
-                : <><span className="notebook-code-prompt" aria-label="Code not run">[ ]</span><div className="notebook-code-preview"><div className="notebook-code-source"><pre>{draft || 'Press Enter to write code.'}</pre></div><div className="notebook-code-output">No output · execution unavailable</div></div></>}
+                : <><span className="notebook-code-prompt" aria-label="Code not run">[ ]</span><div className="notebook-code-preview"><div className="notebook-code-source"><pre>{draft || 'Press Enter to write code.'}</pre></div><div className="notebook-code-output">{language === 'sql' ? sqlPanel : 'No output · Python execution unavailable'}</div></div></>}
         </section></Fragment>;
       })}<InsertionSlot disabled={busy} location={notebook.blocks.length ? `after cell ${notebook.blocks.length}` : 'in the empty notebook'} insert={kind => void action(() => insert(kind, notebook.blocks.at(-1)?.id, notebook.blocks.length ? 'after' : undefined))}/>{!notebook.blocks.length && <div className="notebook-empty-hint"><p>Add a cell to begin this notebook.</p><div><Button disabled={busy} onClick={() => void action(() => insert('code'))}>+ Code</Button><Button disabled={busy} onClick={() => void action(() => insert('markdown'))}>+ Text</Button></div></div>}</div>
       <NotebookAnalysisForm sources={sources} sourceId={analysisSourceId} onSourceChange={id => { setAnalysisSourceId(id); setConfiguration(defaultConfiguration()); setTargetResultId(null); setAnalysisError(''); }} columns={columns} schemaLoading={schemaLoading} schemaError={schemaError} config={configuration} onConfigChange={setConfiguration} targetResultId={targetResultId} onNewResult={() => { setTargetResultId(null); setAnalysisNotice("The next run will add a new result cell."); }} running={!!analysisRunId} canCancel={analysisCanCancel} notice={analysisNotice} error={analysisError} onRun={() => void runAnalysis()} onCancel={() => void cancelAnalysis()}/>
