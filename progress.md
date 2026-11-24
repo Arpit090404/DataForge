@@ -3,6 +3,12 @@
 **Updated:** 2026-11-23
 **Current state:** The local CSV desktop slice and Rust-hosted DuckDB analytics slice are implemented. Full Milestone 1 is not complete.
 
+## Notebook nested filter editing (2026-11-24)
+
+The built-in analysis form now edits nested AND/OR groups using the existing typed DuckDB filter tree. Edit analysis loads saved nested groups without flattening them; runs serialize the tree with the existing backend limits. A successful rerun still creates a new execution and retargets the same Result cell ID through the existing project transaction. Empty nested groups and incomplete conditions are rejected before submission.
+
+**Verified:** `node tests/notebook-analysis.cjs` passed nesting, serialization, saved-configuration editing, and invalid-filter checks. `node tests/notebook-filter-form.cjs` passed a server-rendered nested form check, including saved values and rerun controls. `node node_modules/typescript/bin/tsc --noEmit`, `node tests/design-system.cjs`, `node tests/form-controls.cjs`, and `git diff --check` passed. `npm.cmd run build` passed after granting Vite the filesystem access needed to read its configuration. `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml notebook::tests` passed 7/7, including Result retarget identity and rollback. Native WebView2 interaction and narrow-width visual behavior were not exercised.
+
 ## Notebook Result pagination (2026-11-23)
 
 Result cells now request bounded pages of the original row-view or grouped-summary operation from `get_execution_result`. They show a row range, page size, and Previous/Next controls; a new page size starts at the first page. Empty/final pages stop navigation, loading retains the previous page, and failed page replay offers Retry. Page overrides are validated by Rust, use the saved pinned representation and existing cancellation/resource limits, and leave the execution ID, parameters, provenance, and history unchanged. The original saved page still loads when no override is supplied.
@@ -15,7 +21,7 @@ The Notebook now exposes typed row filtering/sorting and grouped summaries with 
 
 **Verified:** `node tests/notebook-analysis.cjs`, desktop TypeScript, Notebook keyboard/Home/provenance tests, and `npm.cmd run build` passed; the production build needed filesystem access beyond the restricted sandbox to read Vite configuration. `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml` passed all 28 tests, including a row-to-group rerun/reopen workflow. Impeccable detection returned `[]`; `git diff --check` passed. A Tauri dev build launched WebView2 and exposed its accessibility tree, but native click-through failed with “coordinate input geometry is unavailable,” and the window capture was black. UI-to-host clicks, live cancellation, and visual layout remain unverified.
 
-**Limitations:** Notebook editing handles flat filter groups; a saved nested group can still be viewed/replayed but cannot be loaded into this form. The source workspace retains its fuller nested filter controls.
+**Limitations at that checkpoint:** Notebook editing handled flat filter groups. The nested editing task above closes that gap.
 
 ## Notebook Count rows reliability sweep
 

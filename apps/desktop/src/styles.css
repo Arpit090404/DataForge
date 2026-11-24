@@ -278,6 +278,12 @@
 .notebook-analysis-chips input{accent-color:var(--color-accent)}
 .notebook-analysis-rule{display:flex;align-items:center;gap:var(--space-2);min-width:0}
 .notebook-analysis-rule>.ui-select,.notebook-analysis-rule>.ui-input{flex:1;min-width:0;width:0}
+.notebook-filter-group{display:grid;gap:var(--space-2);min-width:0}
+.notebook-filter-heading label{display:flex;align-items:center;gap:var(--space-2);color:var(--color-text-muted);font-size:var(--font-size-secondary)}
+.notebook-filter-heading .ui-select{width:auto}
+.notebook-filter-nested{display:flex;align-items:flex-start;gap:var(--space-2);min-width:0;border-left:1px solid var(--color-border);padding-left:var(--space-3)}
+.notebook-filter-nested>.notebook-filter-group{flex:1}
+.notebook-filter-actions{display:flex;gap:var(--space-2)}
 .notebook-analysis-options{margin-top:var(--space-3);border-top:1px solid var(--color-border)}
 .notebook-analysis-options>summary{padding:var(--space-2) 0;cursor:pointer;color:var(--color-text-secondary)}
 .notebook-analysis-options>summary:focus-visible{outline:var(--focus-width) solid var(--color-focus-ring);outline-offset:2px}
