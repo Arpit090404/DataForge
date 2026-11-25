@@ -12,7 +12,14 @@ pub(super) struct PythonEnvironment { path: String, version: String }
 #[derive(Deserialize)]
 struct BridgeReply { version: u32, id: String, status: String, count: Option<u64>, outputs: Option<Vec<PythonOutput>> }
 #[derive(Deserialize, Serialize)]
-pub(super) struct PythonOutput { kind: String, text: String }
+pub(super) struct PythonOutput {
+    kind: String, text: String,
+    #[serde(default)] mime: Option<String>,
+    #[serde(default)] data: Option<String>,
+    #[serde(default)] columns: Option<Vec<String>>,
+    #[serde(default)] rows: Option<Vec<Vec<String>>>,
+    #[serde(default)] truncated: bool,
+}
 #[derive(Serialize)]
 pub(super) struct PythonResult { execution_id: String, status: String, count: Option<u64>, outputs: Vec<PythonOutput>, duration_ms: u128, python: String }
 
@@ -158,13 +165,33 @@ pub(super) fn execute(kernels: &PythonKernels, project: &Path, notebook: &str, b
         let response = reply(&mut output)?;
         if response.id != id { return Err(kernel_error("Python kernel response did not match the cell.")); }
         let outputs = response.outputs.unwrap_or_default();
-        if outputs.len() > 200 || outputs.iter().any(|o| !matches!(o.kind.as_str(),"stdout"|"stderr"|"result"|"error")) ||
-            outputs.iter().map(|o|o.text.len()).sum::<usize>() > 1024*1024 { return Err(kernel_error("Python output exceeded the limit.")); }
+        let mut bytes = 0usize;
+        if outputs.len() > 200 || outputs.iter().any(|o| {
+            bytes += o.text.len();
+            match o.kind.as_str() {
+                "stdout"|"stderr"|"result"|"error" => false,
+                "image" => {
+                    let Some(data) = o.data.as_ref() else { return true };
+                    bytes += data.len() * 3 / 4;
+                    !matches!(o.mime.as_deref(),Some("image/png"|"image/jpeg")) || data.len() > 1024*1024 ||
+                        !data.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b,b'+'|b'/'|b'='))
+                },
+                "table" => {
+                    let (Some(columns),Some(rows)) = (&o.columns,&o.rows) else { return true };
+                    bytes += columns.iter().map(String::len).sum::<usize>();
+                    bytes += rows.iter().flatten().map(String::len).sum::<usize>();
+                    columns.is_empty() || columns.len()>64 || rows.len()>200 ||
+                        rows.iter().any(|row|row.len()>64) ||
+                        columns.iter().chain(rows.iter().flatten()).any(|cell|cell.len()>4096)
+                },
+                _ => true,
+            }
+        }) || bytes > 1024*1024 { return Err(kernel_error("Python output exceeded the limit or had an unsupported format.")); }
         let status = if session.interrupted.load(Ordering::Acquire) { "interrupted" } else { response.status.as_str() };
         if !matches!(status,"succeeded"|"failed"|"interrupted") { return Err(kernel_error("Invalid Python execution status.")); }
         Ok((status.to_string(),response.count,outputs))
     })();
-    let (status,count,outputs) = work.unwrap_or_else(|failure| ("failed".into(),None,vec![PythonOutput {kind:"error".into(),text:failure.message}]));
+    let (status,count,outputs) = work.unwrap_or_else(|failure| ("failed".into(),None,vec![PythonOutput {kind:"error".into(),text:failure.message,mime:None,data:None,columns:None,rows:None,truncated:false}]));
     let duration_ms = clock.elapsed().as_millis();
     metadata.execute("UPDATE executions SET completed_at=?1,status=?2,error_summary=?3 WHERE id=?4",
         params![now(),status,outputs.iter().find(|o|o.kind=="error").map(|o|o.text.chars().take(500).collect::<String>()),id])
@@ -194,6 +221,12 @@ mod tests {
         crate::notebook::update_block_inner(path,block_id,"value + 3",Some("python")).unwrap();
         let second = execute(&kernels,path,notebook_id,block_id,"value + 3",&python,&uuid::Uuid::new_v4().to_string()).unwrap();
         assert_eq!(second.count,Some(2)); assert!(second.outputs.iter().any(|item|item.kind=="result" && item.text.contains('7')));
+        let rich = "import pandas as pd,base64\nfrom IPython.display import display,Image\ndisplay(pd.DataFrame({'name':['Ada']}))\ndisplay(Image(data=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/dS8AAAAASUVORK5CYII='),format='png'))";
+        crate::notebook::update_block_inner(path,block_id,rich,Some("python")).unwrap();
+        let rich_result = execute(&kernels,path,notebook_id,block_id,rich,&python,&uuid::Uuid::new_v4().to_string()).unwrap();
+        assert_eq!(rich_result.status,"succeeded");
+        assert!(rich_result.outputs.iter().any(|item|item.kind=="table" && item.rows.as_ref().is_some_and(|rows| rows.iter().flatten().any(|cell|cell=="Ada"))));
+        assert!(rich_result.outputs.iter().any(|item|item.kind=="image" && item.mime.as_deref()==Some("image/png")));
         crate::notebook::update_block_inner(path,block_id,"import time; time.sleep(10)",Some("python")).unwrap();
         std::thread::scope(|scope| {
             let task = scope.spawn(||execute(&kernels,path,notebook_id,block_id,"import time; time.sleep(10)",&python,&uuid::Uuid::new_v4().to_string()));
@@ -209,7 +242,7 @@ mod tests {
         let third = execute(&kernels,path,notebook_id,block_id,"value + 3",&python,&uuid::Uuid::new_v4().to_string()).unwrap();
         assert_eq!(third.status,"failed"); assert_eq!(third.count,Some(1));
         let count:i64 = db(path).unwrap().query_row("SELECT COUNT(*) FROM executions WHERE operation_type='python'",[],|r|r.get(0)).unwrap();
-        assert_eq!(count,4);
+        assert_eq!(count,5);
         kernels.close(); std::fs::remove_dir_all(root).unwrap();
     }
 }

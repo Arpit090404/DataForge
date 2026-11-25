@@ -28,7 +28,8 @@ type Notebook = { id: string; title: string; created_at: string; updated_at: str
 type Summary = { id: string; title: string; updated_at: string; block_count: number };
 type Source = { id: string; name: string; status: string };
 type PythonEnvironment = { path: string; version: string };
-type PythonResult = { execution_id: string; status: string; count: number | null; outputs: { kind: string; text: string }[]; duration_ms: number; python: string };
+type PythonOutput = { kind: string; text: string; mime?: string; data?: string; columns?: string[]; rows?: string[][]; truncated?: boolean };
+type PythonResult = { execution_id: string; status: string; count: number | null; outputs: PythonOutput[]; duration_ms: number; python: string };
 const numericColumnType = /^(?:integer|decimal)$/;
 
 export function codeExecutionForBlock(executions: Execution[], blockId: string): Execution | undefined {
@@ -64,11 +65,17 @@ export function PythonCodePanel({ environments, selected, onSelect, onBrowse, on
 }) {
   return <div className="notebook-sql-panel notebook-python-panel">
     <div className="notebook-sql-controls"><label>Python <Select value={selected} disabled={running || disabled} onChange={event => onSelect(event.target.value)}><option value="">Choose environment</option>{environments.map(env => <option key={env.path} value={env.path}>{env.version} Ã‚Â· {env.path}</option>)}</Select></label><Button type="button" variant="ghost" size="small" disabled={running || disabled} onClick={onBrowse}>BrowseÃ¢â‚¬Â¦</Button><Button type="button" variant="secondary" size="small" loading={running} disabled={disabled || !selected || !code.trim()} onClick={onRun}>Run Python</Button>{running ? <Button type="button" variant="ghost" size="small" onClick={onInterrupt}>Interrupt</Button> : <Button type="button" variant="ghost" size="small" disabled={disabled || !selected} onClick={onRestart}>Restart kernel</Button>}</div>
-    <p className="notebook-sql-disclosure">Trusted Python runs locally with your account's full file and network privileges. Variables persist within this notebook's kernel until restart. Only plain-text output is shown.</p>
+    <p className="notebook-sql-disclosure">Trusted Python runs locally with your account's full file and network privileges. Variables persist within this notebook's kernel until restart. Tables, PNG/JPEG images, and plain text are shown; executable HTML is never rendered.</p>
     {!environments.length && <p className="notebook-muted">No compatible Python found automatically. Choose an existing Python executable with ipykernel and jupyter_client.</p>}
     {running && <p role="status">Running PythonÃ¢â‚¬Â¦</p>}{error && <p className="inline-error" role="alert">{error}</p>}
-    {result && <><p className="notebook-muted">{result.status} Ã‚Â· In [{result.count ?? ' '} ] Ã‚Â· {result.duration_ms} ms Ã‚Â· Python {result.python}</p>{result.outputs.map((output,index) => <pre key={index} className={`notebook-python-output notebook-python-${output.kind}`}>{output.text}</pre>)}</>}
+    {result && <><p className="notebook-muted">{result.status} Ã‚Â· In [{result.count ?? ' '} ] Ã‚Â· {result.duration_ms} ms Ã‚Â· Python {result.python}</p>{result.outputs.map((output,index) => <PythonOutputView key={index} output={output}/>)}</>}
   </div>;
+}
+
+export function PythonOutputView({ output }: { output: PythonOutput }) {
+  if (output.kind === 'table' && output.columns?.length && output.rows) return <div className="notebook-python-rich"><div className="table-scroll"><Table><TableHeader><TableRow>{output.columns.map((name,index) => <TableHead key={index}>{name}</TableHead>)}</TableRow></TableHeader><TableBody>{output.rows.map((row,index) => <TableRow key={index}>{row.map((cell,column) => <TableCell key={column} title={cell}>{cell}</TableCell>)}</TableRow>)}</TableBody></Table>{!output.rows.length && <TableEmpty>Empty DataFrame</TableEmpty>}</div>{output.truncated && <p className="notebook-muted">Showing the first 200 rows and 64 columns.</p>}{output.text && <details><summary>Plain text</summary><pre className="notebook-python-output">{output.text}</pre></details>}</div>;
+  if (output.kind === 'image' && (output.mime === 'image/png' || output.mime === 'image/jpeg') && output.data && /^[A-Za-z0-9+/=]+$/.test(output.data)) return <div className="notebook-python-rich"><img className="notebook-python-image" src={`data:${output.mime};base64,${output.data}`} alt={output.text || 'Python image output'}/>{output.text && <details><summary>Plain text</summary><pre className="notebook-python-output">{output.text}</pre></details>}</div>;
+  return <pre className={`notebook-python-output notebook-python-${output.kind}`}>{output.text}</pre>;
 }
 
 function InsertionSlot({ disabled, insert, location }: { disabled: boolean; insert: (kind: 'code' | 'markdown') => void; location: string }) {
