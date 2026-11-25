@@ -9,8 +9,9 @@ mod analytics;
 pub fn run_sql_worker() -> i32 { analytics::sql_worker_main() }
 mod notebook;
 mod python_kernel;
+mod code_outputs;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const MAX_SCAN_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_SCAN_ROWS: usize = 20_000;
 const MAX_COLUMNS: usize = 128;
@@ -88,8 +89,9 @@ fn db(project: &Path) -> Result<Connection> {
         if current == 1 { create_analytics_tables(&conn)?; }
         if current == 1 || current == 2 { notebook::create_tables(&conn)?; }
         else if current == 3 { notebook::migrate_v3_to_v4(&conn)?; }
+        if current <= 4 { code_outputs::create_tables(&conn)?; }
         else if current != SCHEMA_VERSION { return Err(error("unsupported_project", "This project uses an unsupported metadata version.")); }
-        conn.execute_batch("PRAGMA user_version = 4; COMMIT").map_err(|_| storage_error())?;
+        conn.execute_batch("PRAGMA user_version = 5; COMMIT").map_err(|_| storage_error())?;
     } else if version != SCHEMA_VERSION {
         return Err(error("unsupported_project", "This project uses an unsupported metadata version."));
     }
@@ -133,7 +135,8 @@ fn create_project_inner(name: &str, location: &str) -> Result<ProjectState> {
             registered_at TEXT NOT NULL, status TEXT NOT NULL);").map_err(|_| storage_error())?;
     create_analytics_tables(&conn)?;
     notebook::create_tables(&conn)?;
-    conn.execute_batch("PRAGMA user_version = 4; COMMIT;").map_err(|_| storage_error())?;
+    code_outputs::create_tables(&conn)?;
+    conn.execute_batch("PRAGMA user_version = 5; COMMIT;").map_err(|_| storage_error())?;
     conn.execute("INSERT INTO project (id,name,created_at) VALUES (?1,?2,?3)",
         params![uuid::Uuid::new_v4().to_string(), name, now()]).map_err(|_| storage_error())?;
     Ok(ProjectState { project: project_record(&conn, &path)?, datasets: Vec::new() })
@@ -426,6 +429,11 @@ async fn get_notebook(id: String, state: State<'_, ActiveProject>) -> Result<not
     tauri::async_runtime::spawn_blocking(move || notebook::get_notebook_inner(&project, &id)).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
+async fn get_notebook_code_outputs(id: String, state: State<'_, ActiveProject>) -> Result<Vec<code_outputs::SavedOutput>> {
+    let project = active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || code_outputs::load(&project, &id)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
 async fn create_notebook(title: String, state: State<'_, ActiveProject>) -> Result<notebook::Notebook> {
     let project = active(&state)?;
     tauri::async_runtime::spawn_blocking(move || notebook::create_notebook_inner(&project, &title)).await.map_err(|_| storage_error())?
@@ -481,7 +489,7 @@ pub fn run() {
             run_analytics, run_notebook_sql, python_environments, inspect_python_environment, run_notebook_python,
             interrupt_notebook_python, restart_notebook_python, close_notebook_python,
             list_executions, cancel_execution, active_execution, export_result,
-            list_notebooks, get_notebook, create_notebook, rename_notebook, delete_notebook,
+            list_notebooks, get_notebook, get_notebook_code_outputs, create_notebook, rename_notebook, delete_notebook,
             add_block, update_block, update_result_block, delete_block, move_block, get_execution_result])
         .run(tauri::generate_context!()).expect("DataForge could not start");
 }
@@ -496,7 +504,7 @@ mod tests {
         assert_eq!(open_project_inner(&created.project.path).unwrap().project.id, created.project.id);
         assert_eq!(create_project_inner("Study", root.to_str().unwrap()).unwrap_err().code, "project_exists");
         let conn = db(Path::new(&created.project.path)).unwrap();
-        conn.pragma_update(None, "user_version", 5).unwrap();
+        conn.pragma_update(None, "user_version", 6).unwrap();
         drop(conn);
         assert_eq!(open_project_inner(&created.project.path).unwrap_err().code, "unsupported_project");
         fs::remove_dir_all(root).unwrap();
@@ -512,12 +520,12 @@ mod tests {
     fn legacy_project_gains_analytics_tables() {
         let root = fixture(); let project = create_project_inner("Legacy", root.to_str().unwrap()).unwrap();
         let conn = db(Path::new(&project.project.path)).unwrap();
-        conn.execute_batch("DROP TABLE notebook_blocks; DROP TABLE notebooks; DROP TABLE representations; DROP TABLE executions; PRAGMA user_version = 1;").unwrap();
+        conn.execute_batch("DROP TABLE code_execution_outputs; DROP TABLE code_output_blobs; DROP TABLE notebook_blocks; DROP TABLE notebooks; DROP TABLE representations; DROP TABLE executions; PRAGMA user_version = 1;").unwrap();
         drop(conn);
         let reopened = open_project_inner(&project.project.path).unwrap();
         assert_eq!(reopened.project.id, project.project.id);
         let conn = db(Path::new(&project.project.path)).unwrap();
-        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 4);
+        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 5);
         assert!(conn.prepare("SELECT id FROM representations").is_ok());
         drop(conn); fs::remove_dir_all(root).unwrap();
     }
@@ -525,11 +533,23 @@ mod tests {
     fn version_two_project_gains_notebooks() {
         let root = fixture(); let project = create_project_inner("Legacy2", root.to_str().unwrap()).unwrap();
         let conn = db(Path::new(&project.project.path)).unwrap();
-        conn.execute_batch("DROP TABLE notebook_blocks; DROP TABLE notebooks; PRAGMA user_version = 2;").unwrap();
+        conn.execute_batch("DROP TABLE code_execution_outputs; DROP TABLE code_output_blobs; DROP TABLE notebook_blocks; DROP TABLE notebooks; PRAGMA user_version = 2;").unwrap();
         drop(conn);
         assert!(notebook::create_notebook_inner(Path::new(&project.project.path), "Notes").is_ok());
         let conn = db(Path::new(&project.project.path)).unwrap();
-        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 4);
+        assert_eq!(conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)).unwrap(), 5);
+        drop(conn); fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn version_four_project_gains_code_output_storage() {
+        let root=fixture(); let project=create_project_inner("Legacy4",root.to_str().unwrap()).unwrap();
+        let path=Path::new(&project.project.path); let conn=db(path).unwrap();
+        conn.execute_batch("DROP TABLE code_execution_outputs; DROP TABLE code_output_blobs; PRAGMA user_version=4;").unwrap();
+        drop(conn);
+        open_project_inner(&project.project.path).unwrap();
+        let conn=db(path).unwrap();
+        assert_eq!(conn.pragma_query_value::<i64,_>(None,"user_version",|r|r.get(0)).unwrap(),5);
+        assert!(conn.prepare("SELECT payload_hash FROM code_execution_outputs").is_ok());
         drop(conn); fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -537,7 +557,7 @@ mod tests {
         let root = fixture(); let project = create_project_inner("Legacy3", root.to_str().unwrap()).unwrap();
         let path=Path::new(&project.project.path);
         let conn=db(path).unwrap();
-        conn.execute_batch("DROP TABLE notebook_blocks;
+        conn.execute_batch("DROP TABLE code_execution_outputs; DROP TABLE code_output_blobs; DROP TABLE notebook_blocks;
             CREATE TABLE notebook_blocks (
                 id TEXT PRIMARY KEY, notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
                 position INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('markdown','result')),
@@ -553,7 +573,7 @@ mod tests {
         drop(conn);
         notebook::get_notebook_inner(path,"old-note").unwrap();
         let conn=db(path).unwrap();
-        assert_eq!(conn.pragma_query_value::<i64, _>(None,"user_version",|r|r.get(0)).unwrap(),4);
+        assert_eq!(conn.pragma_query_value::<i64, _>(None,"user_version",|r|r.get(0)).unwrap(),5);
         let rows:Vec<(String,String,String,Option<String>,Option<String>)>=conn.prepare(
             "SELECT id,kind,content,execution_id,language FROM notebook_blocks WHERE notebook_id='old-note' ORDER BY position"
         ).unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))
