@@ -1,7 +1,17 @@
 # DataForge progress
 
-**Updated:** 2026-11-24
-**Current state:** The local CSV, typed DuckDB analytics, and explicit trusted-user Notebook SQL slices are implemented. Full Milestone 1 and autonomous SQL remain incomplete.
+**Updated:** 2026-11-25
+**Current state:** The local CSV, typed DuckDB analytics, and explicit trusted-user Notebook SQL/Python slices are implemented. Full Milestone 1 and autonomous code execution remain incomplete.
+
+## Trusted local Notebook Python (2026-11-25)
+
+Python Code cells now run only after the local user presses Run and selects an existing environment with `ipykernel` and `jupyter_client`. The Rust host validates the saved Code cell and records each execution's exact code, cell/notebook IDs, Python version, timestamps, status and error in project SQLite. A versioned stdio bridge uses Jupyter's kernel protocol and keeps one kernel for the active notebook. Variables persist across cells, execution counts advance, and Restart clears state. The Code cell displays bounded stdout, stderr, plain-text results and exceptions; output is session-only. Interrupt uses Jupyter's kernel interruption, and leaving or switching notebooks requests shutdown. SQL, typed analysis and Result cells retain their separate paths. No Python package installation or autonomous agent execution was added.
+
+The UI states that trusted Python has the user's full local file and network privileges. Jupyter messaging and a subprocess do not provide OS isolation. The bridge enforces a 1 MiB plain-text output cap and requests interrupt after 60 seconds, but there is no hard memory/CPU limit, guaranteed process-tree cleanup after a crash, rich MIME rendering, persisted output replay, or deterministic replay of hidden kernel state. Automatic discovery checks PATH and an optional local uv listing; the file picker can select another existing executable. On this machine, base Python installs lacked `ipykernel`; an existing development virtual environment was selected for verification without installing packages.
+
+**Verification:** `node tests/python-kernel.cjs` passed against that existing environment, covering stdout, result, exception, persistent state, counts, interrupt, restart and shutdown. The focused Rust host test `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml --lib python_kernel::tests -- --nocapture` passed with `DATAFORGE_TEST_PYTHON` set to the existing interpreter, covering notebook cell validation, persisted execution history, interruption, restart and state reset. `node tests/notebook-sql.cjs` rendered Python controls, disclosure and output alongside the SQL panel. Native WebView2 interaction has not been tested.
+
+The full `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml` suite passed 33/33; its optional Python integration case returned early without `DATAFORGE_TEST_PYTHON`, so the separate focused run above supplies the real-kernel evidence. `npm.cmd run build` passed design and form gates, TypeScript and Vite. `node tests/notebook-analysis.cjs`, `node tests/notebook-filter-form.cjs` and `git diff --check` passed. A final `cargo check --offline --manifest-path apps/desktop/src-tauri/Cargo.toml` passed after a bounded-response adjustment. A packaged release build and native WebView2 click-through remain unverified.
 
 ## Trusted local Notebook SQL (2026-11-24)
 

@@ -8,6 +8,7 @@ use tauri::State;
 mod analytics;
 pub fn run_sql_worker() -> i32 { analytics::sql_worker_main() }
 mod notebook;
+mod python_kernel;
 
 const SCHEMA_VERSION: i64 = 4;
 const MAX_SCAN_BYTES: u64 = 32 * 1024 * 1024;
@@ -306,15 +307,19 @@ fn active(state: &State<'_, ActiveProject>) -> Result<PathBuf> {
     state.0.lock().map_err(|_| storage_error())?.clone().ok_or_else(|| error("no_project", "Create or open a project first."))
 }
 #[tauri::command]
-async fn create_project(name: String, location: String, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<ProjectState> {
+async fn create_project(name: String, location: String, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>, kernels: State<'_, python_kernel::PythonKernels>) -> Result<ProjectState> {
     if control.is_running() { return Err(error("analytics_busy", "Wait for the analytical operation to finish before switching projects.")); }
+    if kernels.is_running() { return Err(error("python_busy", "Wait for the Python cell before switching projects.")); }
+    kernels.close();
     let result = tauri::async_runtime::spawn_blocking(move || create_project_inner(&name, &location)).await.map_err(|_| storage_error())??;
     *state.0.lock().map_err(|_| storage_error())? = Some(PathBuf::from(&result.project.path));
     Ok(result)
 }
 #[tauri::command]
-async fn open_project(path: String, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>) -> Result<ProjectState> {
+async fn open_project(path: String, state: State<'_, ActiveProject>, control: State<'_, analytics::AnalyticsControl>, kernels: State<'_, python_kernel::PythonKernels>) -> Result<ProjectState> {
     if control.is_running() { return Err(error("analytics_busy", "Wait for the analytical operation to finish before switching projects.")); }
+    if kernels.is_running() { return Err(error("python_busy", "Wait for the Python cell before switching projects.")); }
+    kernels.close();
     let result = tauri::async_runtime::spawn_blocking(move || open_project_inner(&path)).await.map_err(|_| storage_error())??;
     *state.0.lock().map_err(|_| storage_error())? = Some(PathBuf::from(&result.project.path));
     Ok(result)
@@ -358,6 +363,40 @@ async fn run_notebook_sql(dataset_id: String, block_id: String, sql: String, exe
     let control = control.inner().clone();
     tauri::async_runtime::spawn_blocking(move || analytics::run_notebook_sql_inner(&project, &dataset_id, &block_id, &sql, &control, execution_id))
         .await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn python_environments() -> Vec<python_kernel::PythonEnvironment> {
+    tauri::async_runtime::spawn_blocking(python_kernel::discover).await.unwrap_or_default()
+}
+#[tauri::command]
+async fn inspect_python_environment(path: String) -> Result<python_kernel::PythonEnvironment> {
+    tauri::async_runtime::spawn_blocking(move || python_kernel::inspect(&path)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn run_notebook_python(notebook_id: String, block_id: String, code: String, python: String, execution_id: String,
+    state: State<'_, ActiveProject>, kernels: State<'_, python_kernel::PythonKernels>) -> Result<python_kernel::PythonResult> {
+    let project = active(&state)?;
+    if uuid::Uuid::parse_str(&execution_id).ok().filter(|id| id.get_version_num() == 4 && id.to_string() == execution_id).is_none() {
+        return Err(error("invalid_execution_id", "Expected a canonical version 4 execution ID."));
+    }
+    let kernels = kernels.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || python_kernel::execute(&kernels,&project,&notebook_id,&block_id,&code,&python,&execution_id))
+        .await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn interrupt_notebook_python(notebook_id: String, kernels: State<'_, python_kernel::PythonKernels>) -> Result<()> {
+    kernels.interrupt(&notebook_id)
+}
+#[tauri::command]
+async fn restart_notebook_python(notebook_id: String, kernels: State<'_, python_kernel::PythonKernels>) -> Result<()> {
+    let kernels = kernels.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || kernels.restart(&notebook_id)).await.map_err(|_| storage_error())?
+}
+#[tauri::command]
+async fn close_notebook_python(kernels: State<'_, python_kernel::PythonKernels>) -> Result<()> {
+    let kernels = kernels.inner().clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || kernels.close()).await;
+    Ok(())
 }
 #[tauri::command]
 async fn list_executions(state: State<'_, ActiveProject>) -> Result<Vec<analytics::Execution>> {
@@ -437,8 +476,11 @@ pub fn run() {
     tauri::Builder::default().plugin(tauri_plugin_dialog::init())
         .manage(ActiveProject(Mutex::new(None)))
         .manage(analytics::AnalyticsControl::default())
+        .manage(python_kernel::PythonKernels::default())
         .invoke_handler(tauri::generate_handler![create_project, open_project, register_csv, list_datasets, inspect_csv,
-            run_analytics, run_notebook_sql, list_executions, cancel_execution, active_execution, export_result,
+            run_analytics, run_notebook_sql, python_environments, inspect_python_environment, run_notebook_python,
+            interrupt_notebook_python, restart_notebook_python, close_notebook_python,
+            list_executions, cancel_execution, active_execution, export_result,
             list_notebooks, get_notebook, create_notebook, rename_notebook, delete_notebook,
             add_block, update_block, update_result_block, delete_block, move_block, get_execution_result])
         .run(tauri::generate_context!()).expect("DataForge could not start");
