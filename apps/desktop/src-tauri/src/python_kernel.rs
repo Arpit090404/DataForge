@@ -193,10 +193,15 @@ pub(super) fn execute(kernels: &PythonKernels, project: &Path, notebook: &str, b
     })();
     let (status,count,outputs) = work.unwrap_or_else(|failure| ("failed".into(),None,vec![PythonOutput {kind:"error".into(),text:failure.message,mime:None,data:None,columns:None,rows:None,truncated:false}]));
     let duration_ms = clock.elapsed().as_millis();
+    let result = PythonResult { execution_id:id.into(),status:status.clone(),count,outputs,duration_ms,python:session.environment.version.clone() };
+    if let Err(failure) = crate::code_outputs::store(&metadata,block,id,"python",&result) {
+        let _ = metadata.execute("UPDATE executions SET completed_at=?1,status='failed',error_summary=?2 WHERE id=?3",params![now(),failure.message,id]);
+        return Err(failure);
+    }
     metadata.execute("UPDATE executions SET completed_at=?1,status=?2,error_summary=?3 WHERE id=?4",
-        params![now(),status,outputs.iter().find(|o|o.kind=="error").map(|o|o.text.chars().take(500).collect::<String>()),id])
+        params![now(),status,result.outputs.iter().find(|o|o.kind=="error").map(|o|o.text.chars().take(500).collect::<String>()),id])
         .map_err(|_| kernel_error("Python execution status could not be recorded."))?;
-    Ok(PythonResult { execution_id:id.into(),status,count,outputs,duration_ms,python:session.environment.version.clone() })
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -218,6 +223,11 @@ mod tests {
         let first = execute(&kernels,path,notebook_id,block_id,code,&python,&uuid::Uuid::new_v4().to_string()).unwrap();
         assert_eq!(first.status,"succeeded"); assert_eq!(first.count,Some(1));
         assert!(first.outputs.iter().any(|item|item.kind=="stdout" && item.text.contains("hello")));
+        let restored = crate::code_outputs::load(path,notebook_id).unwrap();
+        assert_eq!(restored.len(),1);
+        assert_eq!(restored[0].execution_id,first.execution_id);
+        assert_eq!(restored[0].code,code);
+        assert!(restored[0].value["outputs"].as_array().unwrap().iter().any(|item|item["text"].as_str().is_some_and(|text|text.contains("hello"))));
         crate::notebook::update_block_inner(path,block_id,"value + 3",Some("python")).unwrap();
         let second = execute(&kernels,path,notebook_id,block_id,"value + 3",&python,&uuid::Uuid::new_v4().to_string()).unwrap();
         assert_eq!(second.count,Some(2)); assert!(second.outputs.iter().any(|item|item.kind=="result" && item.text.contains('7')));
@@ -227,6 +237,10 @@ mod tests {
         assert_eq!(rich_result.status,"succeeded");
         assert!(rich_result.outputs.iter().any(|item|item.kind=="table" && item.rows.as_ref().is_some_and(|rows| rows.iter().flatten().any(|cell|cell=="Ada"))));
         assert!(rich_result.outputs.iter().any(|item|item.kind=="image" && item.mime.as_deref()==Some("image/png")));
+        let restored = crate::code_outputs::load(path,notebook_id).unwrap();
+        assert_eq!(restored[0].execution_id,rich_result.execution_id);
+        assert!(restored[0].value["outputs"].as_array().unwrap().iter().any(|item|item["kind"]=="table"));
+        assert!(restored[0].value["outputs"].as_array().unwrap().iter().any(|item|item["kind"]=="image"));
         crate::notebook::update_block_inner(path,block_id,"import time; time.sleep(10)",Some("python")).unwrap();
         std::thread::scope(|scope| {
             let task = scope.spawn(||execute(&kernels,path,notebook_id,block_id,"import time; time.sleep(10)",&python,&uuid::Uuid::new_v4().to_string()));

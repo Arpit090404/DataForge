@@ -563,6 +563,9 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
         let response = execute_sql_worker(&SqlWorkerRequest { protocol_version: 1, database: project.join("analytics.duckdb"), table,
             columns, version: version.clone(), sql: sql.into() }, control, &execution_id, &cancelled, &timed_out, deadline)?;
         check(&cancelled,&timed_out,deadline)?;
+        crate::code_outputs::store(&metadata,block_id,&execution_id,"sql",&serde_json::json!({
+            "columns":response.columns,"rows":response.rows,"total_rows":null,"has_more":response.has_more
+        }))?;
         let completed_at = now();
         metadata.execute("UPDATE executions SET representation_id=?1,completed_at=?2,status='succeeded',result_row_count=?3,duckdb_version=?4 WHERE id=?5",
             params![representation_id,completed_at,response.rows.len() as i64,version,execution_id]).map_err(|_| analytics_error())?;
@@ -576,6 +579,7 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
         else { Err(failure) }
     });
     if let Err(ref failure) = work {
+        let _ = crate::code_outputs::store(&metadata,block_id,&execution_id,"sql",&serde_json::json!({"error":failure.message}));
         let status = if failure.code == "cancelled" {"cancelled"} else if failure.code == "timeout" {"interrupted"} else {"failed"};
         let _ = metadata.execute("UPDATE executions SET completed_at=?1,status=?2,error_summary=?3 WHERE id=?4",
             params![now(),status,failure.message,execution_id]);
@@ -1046,6 +1050,10 @@ mod tests {
         let result=run(sql).unwrap();
         assert_eq!(result.rows,vec![vec![Some("Ada".into()),Some("10".into())],vec![Some("Bob".into()),Some("20".into())]]);
         assert_eq!(result.columns.len(),2); assert!(!result.has_more);
+        let saved=crate::code_outputs::load(p,notebook["id"].as_str().unwrap()).unwrap();
+        assert_eq!(saved[0].execution_id,result.execution.id);
+        assert_eq!(saved[0].value["rows"],serde_json::json!([["Ada","10"],["Bob","20"]]));
+        assert_eq!(saved[0].code,sql);
         assert_eq!(result.execution.operation_type,"sql");
         assert_eq!(serde_json::from_str::<serde_json::Value>(&result.execution.parameters).unwrap()["sql"],sql);
         assert_eq!(run("SELECT 1").unwrap_err().code,"invalid_block");
@@ -1058,6 +1066,10 @@ mod tests {
         let wide = format!("SELECT {} FROM source",(0..129).map(|n|format!("1 AS c{n}")).collect::<Vec<_>>().join(","));
         crate::notebook::update_block_inner(p,block_id,&wide,Some("sql")).unwrap();
         assert_eq!(run(&wide).unwrap_err().code,"result_limit");
+        let failed=crate::code_outputs::load(p,notebook["id"].as_str().unwrap()).unwrap();
+        assert_eq!(failed[0].code,wide);
+        assert_eq!(failed[0].status,"failed");
+        assert!(failed[0].value["error"].as_str().is_some());
         crate::notebook::update_block_inner(p,block_id,"SELECT repeat('x', 600000) FROM source",Some("sql")).unwrap();
         assert_eq!(run("SELECT repeat('x', 600000) FROM source").unwrap_err().code,"result_limit");
         for forbidden in ["DELETE FROM source", "SELECT * FROM read_text('C:/Windows/win.ini')", "SELECT 1; DELETE FROM source", "SELECT FROM source"] {

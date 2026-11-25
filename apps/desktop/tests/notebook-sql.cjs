@@ -36,6 +36,7 @@ assert.match(html, /fingerprint/);
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, sqlText: 'SELECT Value FROM source' })), /Code changed since run/);
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, running: true, canCancel: true })), /Cancel/);
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, result: undefined, error: 'Syntax error' })), /Syntax error/);
+assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, result: { ...props.result, restored: true } })), /Stored output from an earlier execution/);
 console.log('Notebook SQL output and provenance rendering passed.');
 const pythonHtml = renderToStaticMarkup(React.createElement(PythonCodePanel, {
   environments: [{ path: 'C:/python.exe', version: '3.12' }], selected: 'C:/python.exe', onSelect() {}, onBrowse() {},
@@ -44,6 +45,14 @@ const pythonHtml = renderToStaticMarkup(React.createElement(PythonCodePanel, {
 }));
 assert.match(pythonHtml, /Run Python/); assert.match(pythonHtml, /Restart kernel/);
 assert.match(pythonHtml, /local.*privileges|full file and network privileges/); assert.match(pythonHtml, /hello/); assert.match(pythonHtml, /7/);
+const restoredPython = renderToStaticMarkup(React.createElement(PythonCodePanel, {
+  environments: [], selected: '', onSelect() {}, onBrowse() {}, onRun() {}, onInterrupt() {}, onRestart() {},
+  running: false, disabled: false, code: 'print(2)',
+  result: { status: 'succeeded', count: 1, duration_ms: 10, python: '3.12', recorded_code: 'print(1)', restored: true,
+    outputs: [{ kind: 'stdout', text: '1' }] },
+}));
+assert.match(restoredPython, /Code changed since run/);
+assert.match(restoredPython, /kernel state was not restored/);
 console.log('Notebook Python controls and output rendering passed.');
 const table = renderToStaticMarkup(React.createElement(PythonOutputView, { output: {
   kind: 'table', text: 'plain fallback', columns: ['name'], rows: [['<script>window.evil=true</script>']], truncated: true,

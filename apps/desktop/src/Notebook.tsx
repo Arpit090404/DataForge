@@ -22,14 +22,15 @@ import type { ResultPage } from './notebookResultPage';
 import { BookOpen, Ellipsis, Plus, Search } from 'lucide-react';
 
 type Execution = { id: string; dataset_id: string; operation_type: string; parameters: string; started_at: string; completed_at: string | null; status: string; result_row_count: number | null; error_summary: string | null; duckdb_version: string | null; source_fingerprint: string };
-type Result = { execution: Execution; columns: { name: string; data_type: string }[]; rows: (string | null)[][]; total_rows: number | null; has_more: boolean };
+type Result = { execution: Execution; columns: { name: string; data_type: string }[]; rows: (string | null)[][]; total_rows: number | null; has_more: boolean; restored?: boolean };
 type Block = { id: string; notebook_id: string; position: number; kind: 'markdown' | 'code' | 'result'; content: string; language: 'python' | 'sql' | null; execution_id: string | null; created_at: string; updated_at: string };
 type Notebook = { id: string; title: string; created_at: string; updated_at: string; blocks: Block[] };
 type Summary = { id: string; title: string; updated_at: string; block_count: number };
 type Source = { id: string; name: string; status: string };
 type PythonEnvironment = { path: string; version: string };
 type PythonOutput = { kind: string; text: string; mime?: string; data?: string; columns?: string[]; rows?: string[][]; truncated?: boolean };
-type PythonResult = { execution_id: string; status: string; count: number | null; outputs: PythonOutput[]; duration_ms: number; python: string };
+type PythonResult = { execution_id: string; status: string; count: number | null; outputs: PythonOutput[]; duration_ms: number; python: string; restored?: boolean; recorded_code?: string };
+type SavedCodeOutput = { block_id: string; execution_id: string; kind: 'sql' | 'python'; code: string; status: string; value: unknown };
 const numericColumnType = /^(?:integer|decimal)$/;
 
 export function codeExecutionForBlock(executions: Execution[], blockId: string): Execution | undefined {
@@ -53,7 +54,7 @@ export function SqlCodePanel({ sqlText, sources, sourceId, onSourceChange, resul
     {running && <p role="status">Running SQLÃ¢â‚¬Â¦</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {execution && <p className="notebook-muted">Latest run: {execution.status} Ã‚Â· {Number.isFinite(duration) && duration >= 0 ? `${duration} ms` : 'duration unavailable'} Ã‚Â· {sources.find(source => source.id === execution.dataset_id)?.name ?? 'Source unavailable'}{recordedSql !== sqlText ? ' Ã‚Â· Code changed since run' : ''}</p>}
-    {result && <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, index) => <TableHead key={index} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined}>{column.name}</TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, index) => <TableRow key={index}>{row.map((value, column) => <TableCell key={column} className={numericColumnType.test(result.columns[column]?.data_type ?? '') ? 'notebook-number' : undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows returned.</TableEmpty>}</div><p className="notebook-muted">{result.rows.length} rows shown{result.has_more ? ' Ã‚Â· more rows available' : ''}. Output is kept for this session; execution details remain in project history.</p></>}
+    {result && <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, index) => <TableHead key={index} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined}>{column.name}</TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, index) => <TableRow key={index}>{row.map((value, column) => <TableCell key={column} className={numericColumnType.test(result.columns[column]?.data_type ?? '') ? 'notebook-number' : undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows returned.</TableEmpty>}</div><p className="notebook-muted">{result.rows.length} rows shown{result.has_more ? ' Ã‚Â· more rows available' : ''}. {result.restored ? 'Stored output from an earlier execution; no query was run.' : 'Output saved with this execution.'}</p></>}
     {execution && <details><summary>SQL execution details</summary><small>Execution ID: {execution.id}<br/>Source fingerprint: {execution.source_fingerprint}<br/>DuckDB: {execution.duckdb_version ?? 'Unavailable'}</small><pre>{recordedSql}</pre></details>}
   </div>;
 }
@@ -68,7 +69,7 @@ export function PythonCodePanel({ environments, selected, onSelect, onBrowse, on
     <p className="notebook-sql-disclosure">Trusted Python runs locally with your account's full file and network privileges. Variables persist within this notebook's kernel until restart. Tables, PNG/JPEG images, and plain text are shown; executable HTML is never rendered.</p>
     {!environments.length && <p className="notebook-muted">No compatible Python found automatically. Choose an existing Python executable with ipykernel and jupyter_client.</p>}
     {running && <p role="status">Running PythonÃ¢â‚¬Â¦</p>}{error && <p className="inline-error" role="alert">{error}</p>}
-    {result && <><p className="notebook-muted">{result.status} Ã‚Â· In [{result.count ?? ' '} ] Ã‚Â· {result.duration_ms} ms Ã‚Â· Python {result.python}</p>{result.outputs.map((output,index) => <PythonOutputView key={index} output={output}/>)}</>}
+    {result && <><p className="notebook-muted">{result.status} Ã‚Â· In [{result.count ?? ' '} ] Ã‚Â· {result.duration_ms} ms Ã‚Â· Python {result.python}{result.recorded_code !== undefined && result.recorded_code !== code ? ' · Code changed since run' : ''}{result.restored ? ' · Stored output; kernel state was not restored' : ''}</p>{result.outputs.map((output,index) => <PythonOutputView key={index} output={output}/>)}</>}
   </div>;
 }
 
@@ -385,13 +386,42 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     setPythonErrors(current => ({ ...current, [block.id]: '' }));
     try { await saveCell(block.id);
       const result = await invoke<PythonResult>('run_notebook_python', { notebookId: notebook.id, blockId: block.id, code, python: pythonPath, executionId: id });
-      setPythonResults(current => ({ ...current, [block.id]: result }));
+      setPythonResults(current => ({ ...current, [block.id]: { ...result, recorded_code: code } }));
     } catch (failure) { setPythonErrors(current => ({ ...current, [block.id]: message(failure) })); }
     finally { pendingPython.current = false; setPythonRunningBlock(null); setBusy(false); }
   }
   async function interruptPython() { if (!notebook) return; try { await invoke('interrupt_notebook_python', { notebookId: notebook.id }); } catch (failure) { setError(message(failure)); } }
-  async function restartPython() { if (!notebook) return; try { await invoke('restart_notebook_python', { notebookId: notebook.id }); setPythonResults({}); setPythonErrors({}); } catch (failure) { setError(message(failure)); } }
-  async function load(id: string) { if (notebook?.id !== id) await invoke('close_notebook_python'); const next = await invoke<Notebook>('get_notebook', { id }); setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null); setTargetResultId(null); setAnalysisResult(null); setAnalysisSourceId(''); setConfiguration(defaultConfiguration()); setAnalysisNotice(''); setAnalysisError(''); setSqlResults({}); setSqlErrors({}); setPythonResults({}); setPythonErrors({}); if (next.blocks[0]) focusCell(next.blocks[0].id); }
+  async function restartPython() { if (!notebook) return; try { await invoke('restart_notebook_python', { notebookId: notebook.id }); setPythonResults(current => Object.fromEntries(Object.entries(current).map(([id, result]) => [id, { ...result, restored: true }]))); setPythonErrors({}); } catch (failure) { setError(message(failure)); } }
+  async function load(id: string) {
+    if (notebook?.id !== id) await invoke('close_notebook_python');
+    const [next, saved, runs] = await Promise.all([
+      invoke<Notebook>('get_notebook', { id }),
+      invoke<SavedCodeOutput[]>('get_notebook_code_outputs', { id }).catch(failure => { setError(`Saved Code output could not be loaded: ${message(failure)}`); return []; }),
+      invoke<Execution[]>('list_executions'),
+    ]);
+    const sql: Record<string, Result> = {}, sqlErrors: Record<string, string> = {}, python: Record<string, PythonResult> = {};
+    const sourceIds: Record<string, string> = {};
+    for (const item of saved) {
+      const block = next.blocks.find(cell => cell.id === item.block_id && cell.language === item.kind);
+      if (!block) continue;
+      if (item.kind === 'python') {
+        const value = item.value as PythonResult;
+        if (Array.isArray(value.outputs)) python[item.block_id] = { ...value, restored: true, recorded_code: item.code };
+      } else {
+        const execution = runs.find(run => run.id === item.execution_id);
+        if (!execution) continue;
+        sourceIds[item.block_id] = execution.dataset_id;
+        const value = item.value as Partial<Result> & { error?: string };
+        if (value.error) sqlErrors[item.block_id] = value.error;
+        else if (Array.isArray(value.columns) && Array.isArray(value.rows)) sql[item.block_id] = { execution, columns: value.columns, rows: value.rows, total_rows: value.total_rows ?? null, has_more: !!value.has_more, restored: true };
+      }
+    }
+    setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null);
+    setTargetResultId(null); setAnalysisResult(null); setAnalysisSourceId(''); setConfiguration(defaultConfiguration());
+    setAnalysisNotice(''); setAnalysisError(''); setSqlExecutions(runs.filter(run => run.operation_type === 'sql'));
+    setSqlResults(sql); setSqlErrors(sqlErrors); setSqlSources(sourceIds); setPythonResults(python); setPythonErrors({});
+    if (next.blocks[0]) focusCell(next.blocks[0].id);
+  }
   async function reload(id = notebook?.id) { if (id) { setNotebook(await invoke<Notebook>('get_notebook', { id })); await refresh(); } }
   function select(id: string) { setSelectedId(id); if (editingId && editingId !== id) setEditingId(null); clearDelete(); }
   function focusCell(id: string) {
