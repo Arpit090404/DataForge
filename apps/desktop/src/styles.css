@@ -252,6 +252,9 @@
 .notebook-sql-disclosure{color:var(--color-text-muted)}
 .notebook-sql-panel .table-scroll{margin-top:var(--space-1)}
 .notebook-sql-panel details pre{white-space:pre-wrap;overflow-wrap:anywhere}
+.notebook-python-panel .ui-select{max-width:100%;min-width:0}
+.notebook-python-output{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:var(--font-size-meta)/1.5 var(--font-family-code);color:var(--color-text)}
+.notebook-python-stderr,.notebook-python-error{color:var(--color-error)}
 .notebook-output{min-width:0;padding:var(--space-3) 0;color:var(--color-text-secondary);font-size:var(--font-size-secondary);line-height:1.5;overflow-wrap:anywhere}
 .notebook-output>.notebook-muted,.notebook-output details,.notebook-result-meta{margin:0;padding-inline:var(--space-panel)}
 .notebook-output>.notebook-muted,.notebook-output details{margin-top:var(--space-2)}

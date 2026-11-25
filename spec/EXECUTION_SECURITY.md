@@ -1,6 +1,10 @@
 # Execution security
 
-**Status:** Requirements baseline. Typed analytics and explicit trusted-user Notebook SQL are implemented; autonomous SQL, Python and OS-confined execution remain unavailable.
+**Status:** Requirements baseline. Typed analytics and explicit trusted-user Notebook SQL/Python are implemented; autonomous code and OS-confined execution remain unavailable.
+
+## Trusted Notebook Python boundary
+
+A saved Python Code cell runs only after the local user presses Run and selects an existing environment with `ipykernel` and `jupyter_client`. The Jupyter kernel persists for the active notebook, so variables and imports can affect later cells. The host records the submitted code, environment version, cell/notebook IDs, timing and status; only bounded plain-text output is displayed for the current session. Interrupt is cooperative Jupyter interruption, restart clears kernel state, and leaving the notebook requests kernel shutdown. The kernel has the user's normal filesystem, network and subprocess privileges. There is no OS sandbox, hard memory/CPU quota or guaranteed cleanup after a host crash. Agent-generated Python remains disabled.
 
 ## Trusted Notebook SQL boundary
 

@@ -12,7 +12,7 @@ const compiled = new Module(filename, module);
 compiled.filename = filename;
 compiled.paths = Module._nodeModulePaths(path.dirname(filename));
 compiled._compile(code, filename);
-const { SqlCodePanel, codeExecutionForBlock } = compiled.exports;
+const { SqlCodePanel, PythonCodePanel, codeExecutionForBlock } = compiled.exports;
 
 const sql = 'SELECT Name FROM source';
 const execution = { id: 'execution', dataset_id: 'dataset', operation_type: 'sql',
@@ -37,3 +37,11 @@ assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, 
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, running: true, canCancel: true })), /Cancel/);
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, result: undefined, error: 'Syntax error' })), /Syntax error/);
 console.log('Notebook SQL output and provenance rendering passed.');
+const pythonHtml = renderToStaticMarkup(React.createElement(PythonCodePanel, {
+  environments: [{ path: 'C:/python.exe', version: '3.12' }], selected: 'C:/python.exe', onSelect() {}, onBrowse() {},
+  onRun() {}, onInterrupt() {}, onRestart() {}, running: false, disabled: false, code: 'print(1)',
+  result: { status: 'succeeded', count: 2, duration_ms: 15, python: '3.12', outputs: [{ kind: 'stdout', text: 'hello' }, { kind: 'result', text: '7' }] },
+}));
+assert.match(pythonHtml, /Run Python/); assert.match(pythonHtml, /Restart kernel/);
+assert.match(pythonHtml, /local.*privileges|full file and network privileges/); assert.match(pythonHtml, /hello/); assert.match(pythonHtml, /7/);
+console.log('Notebook Python controls and output rendering passed.');

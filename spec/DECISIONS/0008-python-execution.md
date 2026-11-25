@@ -3,9 +3,13 @@
 - Status: Proposed for architecture approval.
 - Date: 2026-11-12
 
+## Trusted local Notebook scope (2026-11-25)
+
+The deferral below applies to autonomous agent-generated Python and a restricted execution service. A deliberate local-user Run on a saved Notebook Python cell is a separate trusted feature under ADR 0011. It uses an existing `ipykernel` environment with Jupyter messaging, persistent notebook state, explicit interrupt and restart, bounded plain-text output and host-owned execution metadata. This kernel has the user's normal file and network privileges. The UI must disclose that fact; no OS isolation is claimed. No agent tool or package manager uses this path.
+
 ## Decision
 
-Trusted ingestion, profiling, statistics, and DuckDB operations run in the supervised analytics worker. Arbitrary agent-generated or user-supplied Python is deferred from the initial release. The UI and MCP tool catalog must not advertise `execute_python` until an approved isolation design passes tests. The Notebook can show application-defined analytical executions and trusted operation results without Python execution.
+Trusted ingestion, profiling, statistics, and DuckDB operations run in the supervised analytics worker. Arbitrary agent-generated Python and restricted execution as a service are deferred from the initial release. The UI and MCP tool catalog must not advertise `execute_python` until an approved isolation design passes tests. The Notebook can show application-defined analytical executions and trusted operation results without Python execution.
 
 "Trusted" describes the application-owned code path, not the input files or an OS sandbox. Parsers and native analytics libraries process untrusted files inside the worker; compromise would have the worker's effective OS access unless separate restrictions are proven. Job Objects and subprocess supervision alone do not restrict filesystem or network access.
 
