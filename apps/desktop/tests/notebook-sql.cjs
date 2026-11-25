@@ -12,7 +12,7 @@ const compiled = new Module(filename, module);
 compiled.filename = filename;
 compiled.paths = Module._nodeModulePaths(path.dirname(filename));
 compiled._compile(code, filename);
-const { SqlCodePanel, PythonCodePanel, codeExecutionForBlock } = compiled.exports;
+const { SqlCodePanel, PythonCodePanel, PythonOutputView, codeExecutionForBlock } = compiled.exports;
 
 const sql = 'SELECT Name FROM source';
 const execution = { id: 'execution', dataset_id: 'dataset', operation_type: 'sql',
@@ -45,3 +45,17 @@ const pythonHtml = renderToStaticMarkup(React.createElement(PythonCodePanel, {
 assert.match(pythonHtml, /Run Python/); assert.match(pythonHtml, /Restart kernel/);
 assert.match(pythonHtml, /local.*privileges|full file and network privileges/); assert.match(pythonHtml, /hello/); assert.match(pythonHtml, /7/);
 console.log('Notebook Python controls and output rendering passed.');
+const table = renderToStaticMarkup(React.createElement(PythonOutputView, { output: {
+  kind: 'table', text: 'plain fallback', columns: ['name'], rows: [['<script>window.evil=true</script>']], truncated: true,
+} }));
+assert.match(table, /data-slot="table"/); assert.match(table, /Plain text/);
+assert.match(table, /&lt;script&gt;/); assert.doesNotMatch(table, /<script>/);
+const image = renderToStaticMarkup(React.createElement(PythonOutputView, { output: {
+  kind: 'image', mime: 'image/png', data: 'iVBORw0KGgo=', text: 'chart',
+} }));
+assert.match(image, /src="data:image\/png;base64,iVBORw0KGgo=/);
+const unsafe = renderToStaticMarkup(React.createElement(PythonOutputView, { output: {
+  kind: 'image', mime: 'image/svg+xml', data: 'PHN2Zz48L3N2Zz4=', text: '<img onerror=alert(1)>',
+} }));
+assert.doesNotMatch(unsafe, /<img/); assert.match(unsafe, /&lt;img/);
+console.log('Notebook rich Python table, image, and unsafe payload rendering passed.');

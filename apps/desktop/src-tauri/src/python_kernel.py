@@ -1,9 +1,12 @@
 """Trusted local Notebook bridge. Protocol: one JSON object per line, version 1."""
+import base64
+import binascii
 import json
 import re
 import sys
 import threading
 import time
+from html.parser import HTMLParser
 
 from jupyter_client import KernelManager
 
@@ -14,6 +17,96 @@ client = manager.client()
 client.start_channels()
 client.wait_for_ready(timeout=15)
 running = threading.Event()
+MAX_OUTPUT_BYTES = 1024 * 1024
+MAX_IMAGE_BYTES = 768 * 1024
+
+
+class DataFrameTable(HTMLParser):
+    """Extract text cells from Pandas' table representation; never pass HTML onward."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.in_table = False
+        self.section = None
+        self.row = None
+        self.cell = None
+        self.headers = []
+        self.rows = []
+        self.truncated = False
+        self.ignore = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "table" and not self.in_table and "dataframe" in dict(attrs).get("class", "").split():
+            self.in_table = True
+        elif self.in_table:
+            if tag in ("script", "style"):
+                self.ignore += 1
+            elif tag in ("thead", "tbody"):
+                self.section = tag
+            elif tag == "tr":
+                self.row = []
+            elif tag in ("td", "th") and self.row is not None:
+                self.cell = []
+
+    def handle_data(self, data):
+        if self.cell is not None and not self.ignore:
+            self.cell.append(data)
+
+    def handle_endtag(self, tag):
+        if not self.in_table:
+            return
+        if tag in ("script", "style") and self.ignore:
+            self.ignore -= 1
+        elif tag in ("td", "th") and self.cell is not None:
+            if len(self.row) < 64:
+                self.row.append("".join(self.cell).strip()[:4096])
+            else:
+                self.truncated = True
+            self.cell = None
+        elif tag == "tr" and self.row is not None:
+            if self.section == "thead":
+                self.headers = self.row
+            elif len(self.rows) < 200:
+                self.rows.append(self.row)
+            else:
+                self.truncated = True
+            self.row = None
+        elif tag in ("thead", "tbody"):
+            self.section = None
+        elif tag == "table":
+            self.in_table = False
+
+
+def rich_output(content):
+    bundle = content.get("data", {})
+    plain = str(bundle.get("text/plain", ""))
+    html = bundle.get("text/html")
+    if isinstance(html, str) and len(html.encode("utf-8")) <= MAX_OUTPUT_BYTES:
+        table = DataFrameTable()
+        table.feed(html)
+        if table.headers:
+            columns = table.headers[:64]
+            rows = [row[:64] for row in table.rows]
+            return {"kind": "table", "text": plain[:8192], "columns": columns, "rows": rows, "truncated": table.truncated}
+    for mime, signature in (("image/png", b"\x89PNG\r\n\x1a\n"), ("image/jpeg", b"\xff\xd8\xff")):
+        encoded = bundle.get(mime)
+        if not isinstance(encoded, str) or len(encoded) > MAX_IMAGE_BYTES * 4 // 3 + 16:
+            continue
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error):
+            continue
+        if raw.startswith(signature) and len(raw) <= MAX_IMAGE_BYTES:
+            return {"kind": "image", "text": plain[:8192], "mime": mime, "data": encoded}
+    return {"kind": "result", "text": plain or "[Unsupported rich output]"}
+
+
+def output_size(item):
+    if item["kind"] == "image":
+        return len(item["data"]) * 3 // 4 + len(item["text"].encode("utf-8"))
+    if item["kind"] == "table":
+        return sum(len(cell.encode("utf-8")) for row in [item["columns"], *item["rows"]] for cell in row) + len(item["text"].encode("utf-8"))
+    return len(item["text"].encode("utf-8"))
 
 
 def send(value):
@@ -41,18 +134,18 @@ def execute(command):
             content = event["content"]
             if kind == "execute_input":
                 count = content.get("execution_count")
-            elif kind in ("stream", "execute_result", "error"):
+            elif kind in ("stream", "execute_result", "display_data", "error"):
                 if kind == "stream":
                     item = {"kind": content.get("name", "stdout"), "text": content.get("text", "")}
-                elif kind == "execute_result":
+                elif kind in ("execute_result", "display_data"):
                     count = content.get("execution_count", count)
-                    item = {"kind": "result", "text": content.get("data", {}).get("text/plain", "")}
+                    item = rich_output(content)
                 else:
                     status = "failed"
                     item = {"kind": "error", "text": "\n".join(content.get("traceback", []))}
                 item["text"] = re.sub(r"\x1b\[[0-9;]*m", "", str(item["text"]))
-                size += len(item["text"].encode("utf-8"))
-                if size > 1024 * 1024:
+                size += output_size(item)
+                if size > MAX_OUTPUT_BYTES:
                     outputs.append({"kind": "error", "text": "Output exceeded 1 MB and was truncated."})
                     status = "failed"
                     manager.interrupt_kernel()
