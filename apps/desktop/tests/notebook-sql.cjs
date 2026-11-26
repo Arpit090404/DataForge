@@ -41,10 +41,14 @@ console.log('Notebook SQL output and provenance rendering passed.');
 const pythonHtml = renderToStaticMarkup(React.createElement(PythonCodePanel, {
   environments: [{ path: 'C:/python.exe', version: '3.12' }], selected: 'C:/python.exe', onSelect() {}, onBrowse() {},
   onRun() {}, onInterrupt() {}, onRestart() {}, running: false, disabled: false, code: 'print(1)',
+  sources: [{ id: 'dataset', name: 'sample.csv', status: 'ready' }], datasetId: 'dataset', onDatasetChange() {},
+  sqlExecutions: [execution], sqlExecutionId: execution.id, onSqlExecutionChange() {},
   result: { status: 'succeeded', count: 2, duration_ms: 15, python: '3.12', outputs: [{ kind: 'stdout', text: 'hello' }, { kind: 'result', text: '7' }] },
 }));
 assert.match(pythonHtml, /Run Python/); assert.match(pythonHtml, /Restart kernel/);
 assert.match(pythonHtml, /local.*privileges|full file and network privileges/); assert.match(pythonHtml, /hello/); assert.match(pythonHtml, /7/);
+assert.match(pythonHtml, /dataforge\.dataset\(\)/); assert.match(pythonHtml, /dataforge\.sql_result\(\)/);
+assert.match(pythonHtml, /sample\.csv/); assert.match(pythonHtml, /execution/);
 const restoredPython = renderToStaticMarkup(React.createElement(PythonCodePanel, {
   environments: [], selected: '', onSelect() {}, onBrowse() {}, onRun() {}, onInterrupt() {}, onRestart() {},
   running: false, disabled: false, code: 'print(2)',

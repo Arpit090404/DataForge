@@ -141,13 +141,24 @@ impl Session {
 }
 impl Drop for PythonKernels { fn drop(&mut self) { if Arc::strong_count(&self.0) == 1 { self.close(); } } }
 
-pub(super) fn execute(kernels: &PythonKernels, project: &Path, notebook: &str, block: &str, code: &str, python: &str, id: &str) -> Result<PythonResult> {
+pub(super) fn execute(kernels: &PythonKernels, project: &Path, notebook: &str, block: &str, code: &str, python: &str, id: &str,
+    dataset_id: Option<&str>, sql_execution_id: Option<&str>, analytics: &crate::analytics::AnalyticsControl) -> Result<PythonResult> {
     if code.len() > 20_000 { return Err(error("invalid_python", "Python Code cells are limited to 20 KB.")); }
     let metadata = db(project)?;
     let (saved, language): (String,String) = metadata.query_row(
         "SELECT content,language FROM notebook_blocks WHERE id=?1 AND notebook_id=?2 AND kind='code'",[block,notebook],|r|Ok((r.get(0)?,r.get(1)?)))
         .map_err(|_| error("invalid_block", "Choose a saved Python Code cell."))?;
     if saved != code || language != "python" { return Err(error("invalid_block", "Save the Python Code cell before running it.")); }
+    let mut inputs = Vec::new();
+    if let Some(dataset_id) = dataset_id.filter(|id| !id.is_empty()) {
+        inputs.push(crate::analytics::dataset_for_python(project,dataset_id,analytics)?);
+    }
+    if let Some(sql_id) = sql_execution_id.filter(|id| !id.is_empty()) {
+        inputs.push(crate::code_outputs::sql_for_python(project,sql_id)?);
+    }
+    if serde_json::to_vec(&inputs).map_err(|_| kernel_error("Python input could not be serialized."))?.len()>3*1024*1024 {
+        return Err(error("input_limit","Selected Python inputs exceed the 3 MiB transfer limit."));
+    }
     let session = kernels.session(project,notebook,python)?;
     if session.running.swap(true,Ordering::AcqRel) { return Err(kernel_error("Another Python cell is running.")); }
     struct RunningFlag<'a>(&'a AtomicBool);
@@ -156,11 +167,14 @@ pub(super) fn execute(kernels: &PythonKernels, project: &Path, notebook: &str, b
     session.interrupted.store(false,Ordering::Release);
     let started = now(); let clock = Instant::now();
     let project_id: String = metadata.query_row("SELECT id FROM project LIMIT 1",[],|r|r.get(0)).map_err(|_| kernel_error("Project metadata is unavailable."))?;
-    let parameters = serde_json::json!({"version":1,"notebook_id":notebook,"code_block_id":block,"code":code,"python":session.environment.version}).to_string();
+    let provenance: Vec<_> = inputs.iter().map(|item|serde_json::json!({"kind":item.kind,"id":item.id,
+        "source_fingerprint":item.source_fingerprint,"representation_id":item.representation_id,
+        "duckdb_version":item.duckdb_version,"has_more":item.has_more})).collect();
+    let parameters = serde_json::json!({"version":1,"notebook_id":notebook,"code_block_id":block,"code":code,"python":session.environment.version,"inputs":provenance}).to_string();
     metadata.execute("INSERT INTO executions (id,project_id,dataset_id,source_fingerprint,operation_type,parameters,started_at,status,schema_version) VALUES (?1,?2,'','','python',?3,?4,'running',3)",params![id,project_id,parameters,started])
         .map_err(|_| kernel_error("Python execution could not be recorded."))?;
     let work = (|| {
-        send(&session,serde_json::json!({"version":1,"id":id,"action":"execute","code":code}))?;
+        send(&session,serde_json::json!({"version":1,"id":id,"action":"execute","code":code,"inputs":inputs}))?;
         let mut output = session.output.lock().map_err(|_| kernel_error("Python kernel is unavailable."))?;
         let response = reply(&mut output)?;
         if response.id != id { return Err(kernel_error("Python kernel response did not match the cell.")); }
@@ -208,6 +222,50 @@ pub(super) fn execute(kernels: &PythonKernels, project: &Path, notebook: &str, b
 mod tests {
     use super::*;
     #[test]
+    fn selected_dataset_and_sql_result_reach_real_kernel_as_dataframes() {
+        let Ok(python)=std::env::var("DATAFORGE_TEST_PYTHON") else { return };
+        let root=std::env::temp_dir().join(format!("dataforge-interop-test-{}",uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let project=crate::create_project_inner("Interop",root.to_str().unwrap()).unwrap();
+        let path=Path::new(&project.project.path);
+        let source=root.join("sample.csv");
+        std::fs::write(&source,"Name,Value,Active\nAda,10,true\nBob,20,false\n").unwrap();
+        let dataset=crate::register_csv_inner(path,source.to_str().unwrap()).unwrap();
+        let note=serde_json::to_value(crate::notebook::create_notebook_inner(path,"Mixed").unwrap()).unwrap();
+        let note_id=note["id"].as_str().unwrap();
+        let sql="SELECT SUM(CAST(Value AS INTEGER)) AS total FROM source";
+        let sql_block=serde_json::to_value(crate::notebook::add_block_inner(path,note_id,"code",sql,None,None,None,Some("sql")).unwrap()).unwrap();
+        let control=crate::analytics::AnalyticsControl::default();
+        let sql_result=crate::analytics::run_notebook_sql_inner(path,&dataset.id,sql_block["id"].as_str().unwrap(),sql,&control,uuid::Uuid::new_v4().to_string()).unwrap();
+        let sql_id=serde_json::to_value(&sql_result).unwrap()["execution"]["id"].as_str().unwrap().to_string();
+        let code="a=dataforge.dataset(); b=dataforge.sql_result(); print(a['Value'].dtype, b['total'].dtype, a.iloc[0]['Value'] + b.iloc[0]['total'], a.attrs['dataforge']['source_fingerprint'])";
+        let block=serde_json::to_value(crate::notebook::add_block_inner(path,note_id,"code",code,None,None,None,Some("python")).unwrap()).unwrap();
+        let block_id=block["id"].as_str().unwrap();
+        let kernels=PythonKernels::default();
+        let result=execute(&kernels,path,note_id,block_id,code,&python,&uuid::Uuid::new_v4().to_string(),Some(&dataset.id),Some(&sql_id),&control).unwrap();
+        assert_eq!(result.status,"succeeded");
+        assert!(result.outputs.iter().any(|o|o.kind=="stdout" && o.text.contains("Int64") && o.text.contains("40") && o.text.contains(&dataset.fingerprint)));
+        let parameters:String=db(path).unwrap().query_row("SELECT parameters FROM executions WHERE id=?1",[&result.execution_id],|r|r.get(0)).unwrap();
+        let recorded:serde_json::Value=serde_json::from_str(&parameters).unwrap();
+        assert_eq!(recorded["inputs"][0]["id"],dataset.id);
+        assert_eq!(recorded["inputs"][1]["id"],sql_id);
+        assert!(!parameters.contains(&project.project.path));
+        assert_eq!(std::fs::read_to_string(&source).unwrap(),"Name,Value,Active\nAda,10,true\nBob,20,false\n");
+        crate::notebook::update_block_inner(path,block_id,"dataforge.dataset()",Some("python")).unwrap();
+        let cleared=execute(&kernels,path,note_id,block_id,"dataforge.dataset()",&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
+        assert_eq!(cleared.status,"failed");
+        assert!(cleared.outputs.iter().any(|o|o.text.contains("Select this DataForge input")));
+        assert!(crate::code_outputs::sql_for_python(path,"missing").is_err());
+        let large=root.join("many.csv");
+        std::fs::write(&large,format!("Value\n{}",(0..250).map(|n|format!("{n}\n")).collect::<String>())).unwrap();
+        let large_dataset=crate::register_csv_inner(path,large.to_str().unwrap()).unwrap();
+        let page=crate::analytics::dataset_for_python(path,&large_dataset.id,&control).unwrap();
+        assert_eq!(page.rows.len(),200); assert!(page.has_more);
+        std::fs::write(&source,"Name,Value,Active\nChanged,99,true\n").unwrap();
+        assert_eq!(crate::analytics::dataset_for_python(path,&dataset.id,&control).err().unwrap().code,"dataset_unavailable");
+        kernels.close(); std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn trusted_python_kernel_persists_state_and_execution_history() {
         let Ok(python) = std::env::var("DATAFORGE_TEST_PYTHON") else { return };
         let root = std::env::temp_dir().join(format!("dataforge-python-test-{}",uuid::Uuid::new_v4()));
@@ -220,7 +278,8 @@ mod tests {
         let block = serde_json::to_value(crate::notebook::add_block_inner(path,notebook_id,"code",code,None,None,None,Some("python")).unwrap()).unwrap();
         let block_id = block["id"].as_str().unwrap();
         let kernels = PythonKernels::default();
-        let first = execute(&kernels,path,notebook_id,block_id,code,&python,&uuid::Uuid::new_v4().to_string()).unwrap();
+        let control = crate::analytics::AnalyticsControl::default();
+        let first = execute(&kernels,path,notebook_id,block_id,code,&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
         assert_eq!(first.status,"succeeded"); assert_eq!(first.count,Some(1));
         assert!(first.outputs.iter().any(|item|item.kind=="stdout" && item.text.contains("hello")));
         let restored = crate::code_outputs::load(path,notebook_id).unwrap();
@@ -229,11 +288,11 @@ mod tests {
         assert_eq!(restored[0].code,code);
         assert!(restored[0].value["outputs"].as_array().unwrap().iter().any(|item|item["text"].as_str().is_some_and(|text|text.contains("hello"))));
         crate::notebook::update_block_inner(path,block_id,"value + 3",Some("python")).unwrap();
-        let second = execute(&kernels,path,notebook_id,block_id,"value + 3",&python,&uuid::Uuid::new_v4().to_string()).unwrap();
+        let second = execute(&kernels,path,notebook_id,block_id,"value + 3",&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
         assert_eq!(second.count,Some(2)); assert!(second.outputs.iter().any(|item|item.kind=="result" && item.text.contains('7')));
         let rich = "import pandas as pd,base64\nfrom IPython.display import display,Image\ndisplay(pd.DataFrame({'name':['Ada']}))\ndisplay(Image(data=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/dS8AAAAASUVORK5CYII='),format='png'))";
         crate::notebook::update_block_inner(path,block_id,rich,Some("python")).unwrap();
-        let rich_result = execute(&kernels,path,notebook_id,block_id,rich,&python,&uuid::Uuid::new_v4().to_string()).unwrap();
+        let rich_result = execute(&kernels,path,notebook_id,block_id,rich,&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
         assert_eq!(rich_result.status,"succeeded");
         assert!(rich_result.outputs.iter().any(|item|item.kind=="table" && item.rows.as_ref().is_some_and(|rows| rows.iter().flatten().any(|cell|cell=="Ada"))));
         assert!(rich_result.outputs.iter().any(|item|item.kind=="image" && item.mime.as_deref()==Some("image/png")));
@@ -243,7 +302,7 @@ mod tests {
         assert!(restored[0].value["outputs"].as_array().unwrap().iter().any(|item|item["kind"]=="image"));
         crate::notebook::update_block_inner(path,block_id,"import time; time.sleep(10)",Some("python")).unwrap();
         std::thread::scope(|scope| {
-            let task = scope.spawn(||execute(&kernels,path,notebook_id,block_id,"import time; time.sleep(10)",&python,&uuid::Uuid::new_v4().to_string()));
+            let task = scope.spawn(||execute(&kernels,path,notebook_id,block_id,"import time; time.sleep(10)",&python,&uuid::Uuid::new_v4().to_string(),None,None,&control));
             let until = Instant::now()+Duration::from_secs(5);
             while !kernels.is_running() && Instant::now()<until { std::thread::sleep(Duration::from_millis(20)); }
             assert!(kernels.is_running());
@@ -253,7 +312,7 @@ mod tests {
         });
         kernels.restart(notebook_id).unwrap();
         crate::notebook::update_block_inner(path,block_id,"value + 3",Some("python")).unwrap();
-        let third = execute(&kernels,path,notebook_id,block_id,"value + 3",&python,&uuid::Uuid::new_v4().to_string()).unwrap();
+        let third = execute(&kernels,path,notebook_id,block_id,"value + 3",&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
         assert_eq!(third.status,"failed"); assert_eq!(third.count,Some(1));
         let count:i64 = db(path).unwrap().query_row("SELECT COUNT(*) FROM executions WHERE operation_type='python'",[],|r|r.get(0)).unwrap();
         assert_eq!(count,5);

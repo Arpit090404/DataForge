@@ -115,12 +115,66 @@ def send(value):
         sys.stdout.flush()
 
 
+def install_inputs(inputs):
+    # Silent setup does not consume a user execution count or echo transferred values.
+    payload = json.dumps(inputs, ensure_ascii=True)
+    setup = '''import json as _df_json
+from decimal import Decimal as _df_Decimal
+class _DataForgeInputs:
+    def __init__(self, payload):
+        self._inputs = {item["kind"]: item for item in _df_json.loads(payload)}
+    def _frame(self, kind, selected_id=None):
+        import pandas as _df_pd
+        item = self._inputs.get(kind)
+        if item is None or (selected_id is not None and selected_id != item["id"]):
+            raise ValueError("Select this DataForge input in the Code cell before running it")
+        columns = {}
+        for index, column in enumerate(item["columns"]):
+            values = [row[index] for row in item["rows"]]
+            data_type = column["data_type"]
+            if data_type == "integer":
+                converted = [int(value) if value is not None else None for value in values]
+                try:
+                    series = _df_pd.Series(_df_pd.array(converted, dtype="Int64"))
+                except (OverflowError, TypeError, ValueError):
+                    series = _df_pd.Series(converted, dtype=object)
+            elif data_type == "decimal":
+                series = _df_pd.Series([_df_Decimal(value) if value is not None else None for value in values], dtype=object)
+            elif data_type == "boolean":
+                series = _df_pd.Series(_df_pd.array([None if value is None else value.lower() == "true" for value in values], dtype="boolean"))
+            else:
+                series = _df_pd.Series(values, dtype="string")
+            columns[column["name"]] = series
+        frame = _df_pd.DataFrame(columns)
+        frame.attrs["dataforge"] = {key: item[key] for key in ("kind", "id", "source_fingerprint", "representation_id", "duckdb_version", "has_more")}
+        return frame
+    def dataset(self, dataset_id=None):
+        return self._frame("dataset", dataset_id)
+    def sql_result(self, execution_id=None):
+        return self._frame("sql_result", execution_id)
+dataforge = _DataForgeInputs(''' + repr(payload) + ''')'''
+    message_id = client.execute(setup, silent=True, store_history=False, allow_stdin=False)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        try:
+            reply = client.get_shell_msg(timeout=1)
+        except Exception:
+            continue
+        if reply.get("parent_header", {}).get("msg_id") != message_id:
+            continue
+        if reply["content"].get("status") != "ok":
+            raise RuntimeError("DataForge input setup failed: " + str(reply["content"].get("evalue", "unknown error"))[:300])
+        return
+    raise TimeoutError("DataForge input setup timed out")
+
+
 def execute(command):
     outputs = []
     size = 0
     count = None
     status = "succeeded"
     try:
+        install_inputs(command.get("inputs", []))
         message_id = client.execute(command["code"], store_history=True, allow_stdin=False, stop_on_error=True)
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:

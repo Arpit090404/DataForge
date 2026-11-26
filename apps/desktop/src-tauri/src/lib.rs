@@ -377,13 +377,16 @@ async fn inspect_python_environment(path: String) -> Result<python_kernel::Pytho
 }
 #[tauri::command]
 async fn run_notebook_python(notebook_id: String, block_id: String, code: String, python: String, execution_id: String,
-    state: State<'_, ActiveProject>, kernels: State<'_, python_kernel::PythonKernels>) -> Result<python_kernel::PythonResult> {
+    dataset_id: Option<String>, sql_execution_id: Option<String>, state: State<'_, ActiveProject>,
+    kernels: State<'_, python_kernel::PythonKernels>, analytics: State<'_, analytics::AnalyticsControl>) -> Result<python_kernel::PythonResult> {
     let project = active(&state)?;
     if uuid::Uuid::parse_str(&execution_id).ok().filter(|id| id.get_version_num() == 4 && id.to_string() == execution_id).is_none() {
         return Err(error("invalid_execution_id", "Expected a canonical version 4 execution ID."));
     }
     let kernels = kernels.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || python_kernel::execute(&kernels,&project,&notebook_id,&block_id,&code,&python,&execution_id))
+    let analytics=analytics.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || python_kernel::execute(&kernels,&project,&notebook_id,&block_id,&code,&python,&execution_id,
+        dataset_id.as_deref(),sql_execution_id.as_deref(),&analytics))
         .await.map_err(|_| storage_error())?
 }
 #[tauri::command]

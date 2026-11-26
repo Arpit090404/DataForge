@@ -1,10 +1,12 @@
 use std::path::Path;
+use std::collections::HashSet;
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{db, error, storage_error, Result};
+use crate::analytics::{PythonTable, ResultColumn};
 
 const MAX_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
 
@@ -98,6 +100,32 @@ pub(super) fn load(project: &Path, notebook: &str) -> Result<Vec<SavedOutput>> {
         saved.push(SavedOutput { block_id,execution_id,kind,code,status,value:snapshot.value });
     }
     Ok(saved)
+}
+
+pub(super) fn sql_for_python(project: &Path, execution_id: &str) -> Result<PythonTable> {
+    let conn=db(project)?;
+    let unavailable=||error("sql_output_unavailable","Choose a successful SQL execution with saved output in this project.");
+    let (hash,payload,fingerprint,representation,version): (String,Vec<u8>,String,String,String)=conn.query_row(
+        "SELECT o.payload_hash,b.payload,e.source_fingerprint,e.representation_id,e.duckdb_version
+         FROM executions e JOIN code_execution_outputs o ON o.execution_id=e.id
+         JOIN code_output_blobs b ON b.hash=o.payload_hash
+         WHERE e.id=?1 AND e.project_id=(SELECT id FROM project LIMIT 1)
+           AND e.operation_type='sql' AND e.status='succeeded'",[execution_id],
+        |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(|_|unavailable())?;
+    if payload.len()>MAX_SNAPSHOT_BYTES || format!("{:x}",Sha256::digest(&payload))!=hash { return Err(unavailable()); }
+    let snapshot:Snapshot<serde_json::Value>=serde_json::from_slice(&payload).map_err(|_|unavailable())?;
+    if snapshot.version!=1 || snapshot.kind!="sql" { return Err(unavailable()); }
+    let columns:Vec<ResultColumn>=serde_json::from_value(snapshot.value["columns"].clone()).map_err(|_|unavailable())?;
+    let rows:Vec<Vec<Option<String>>>=serde_json::from_value(snapshot.value["rows"].clone()).map_err(|_|unavailable())?;
+    let bytes=columns.iter().map(|c|c.name.len()).sum::<usize>()+rows.iter().flatten().flatten().map(String::len).sum::<usize>();
+    let mut names=HashSet::new();
+    if columns.is_empty() || columns.len()>128 || rows.len()>200 || rows.iter().any(|r|r.len()!=columns.len()) || bytes>1024*1024 ||
+        columns.iter().any(|c|c.name.is_empty() || !names.insert(c.name.to_ascii_lowercase()) || !matches!(c.data_type.as_str(),"text"|"integer"|"decimal"|"boolean")) {
+        return Err(unavailable());
+    }
+    Ok(PythonTable { kind:"sql_result".into(),id:execution_id.into(),columns,rows,
+        has_more:snapshot.value["has_more"].as_bool().ok_or_else(unavailable)?,
+        source_fingerprint:fingerprint,representation_id:representation,duckdb_version:version })
 }
 
 #[cfg(test)]

@@ -16,7 +16,7 @@ const receive = () => queue.length ? Promise.resolve(queue.shift()) : new Promis
   const timer = setTimeout(() => reject(new Error('Kernel reply timed out')), 20000);
   wake = item => { clearTimeout(timer); resolve(item); };
 });
-const send = (id, action, code) => child.stdin.write(JSON.stringify({ version: 1, id, action, code }) + '\n');
+const send = (id, action, code, inputs) => child.stdin.write(JSON.stringify({ version: 1, id, action, code, inputs }) + '\n');
 (async () => {
   try {
     assert.equal((await receive()).status, 'ready');
@@ -45,6 +45,20 @@ const send = (id, action, code) => child.stdin.write(JSON.stringify({ version: 1
     assert.equal(rich.outputs[1].rows[1][1], '<script>alert(1)</script>');
     assert.equal(rich.outputs[2].mime, 'image/png');
     assert.ok(rich.outputs[2].data.startsWith('iVBOR'));
+    const inputs = [
+      { kind: 'dataset', id: 'source-1', columns: [{ name: 'name', data_type: 'text' }, { name: 'count', data_type: 'integer' }, { name: 'amount', data_type: 'decimal' }, { name: 'active', data_type: 'boolean' }],
+        rows: [['Ada', '4', '1.25', 'true'], ['Bob', null, null, null]], has_more: true, source_fingerprint: 'source-hash', representation_id: 'rep-1', duckdb_version: '1.4.5' },
+      { kind: 'sql_result', id: 'sql-1', columns: [{ name: 'total', data_type: 'integer' }], rows: [['8']], has_more: false,
+        source_fingerprint: 'source-hash', representation_id: 'rep-1', duckdb_version: '1.4.5' },
+    ];
+    send('inputs', 'execute', 'a=dataforge.dataset("source-1"); b=dataforge.sql_result("sql-1"); print(a.dtypes.to_dict(), a.iloc[0]["amount"], a.iloc[1]["count"], b.iloc[0]["total"], a.attrs["dataforge"]["has_more"])', inputs);
+    const imported = await receive();
+    assert.equal(imported.status, 'succeeded');
+    assert.ok(imported.outputs.some(item => item.kind === 'stdout' && /Int64.*1.25.*<NA>.*8.*True/.test(item.text)));
+    send('cleared', 'execute', 'dataforge.dataset()');
+    const cleared = await receive();
+    assert.equal(cleared.status, 'failed');
+    assert.ok(cleared.outputs.some(item => item.text.includes('Select this DataForge input')));
     if (process.env.DATAFORGE_TEST_MATPLOTLIB === '1') {
       send('plot', 'execute', [
         '%matplotlib inline',
@@ -91,6 +105,6 @@ const send = (id, action, code) => child.stdin.write(JSON.stringify({ version: 1
     const four = await receive(); assert.equal(four.count, 1); assert.equal(four.status, 'failed');
     send('shutdown', 'shutdown'); child.stdin.end();
     await new Promise((resolve, reject) => { const timer = setTimeout(() => { child.kill(); reject(new Error('Kernel did not shut down')); }, 10000); child.on('exit', code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`Bridge exited ${code}`)); }); });
-    console.log('Jupyter kernel stdout, result, error, state, count, restart, and cleanup passed.');
+    console.log('Jupyter DataFrame inputs, output, state, counts, restart, and cleanup passed.');
   } catch (error) { child.kill(); throw error; }
 })().catch(error => { console.error(error); process.exitCode = 1; });
