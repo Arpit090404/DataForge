@@ -34,13 +34,17 @@ struct Session {
 pub(super) struct PythonKernels(Arc<Mutex<Option<Arc<Session>>>>);
 
 fn kernel_error(message: &str) -> AppError { error("python_kernel_error", message) }
-fn command(path: &Path) -> Command {
-    let mut command = Command::new(path);
-    command.args(["-u", "-c", BRIDGE]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new(program);
     #[cfg(windows)] {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
+    command
+}
+fn command(path: &Path) -> Command {
+    let mut command = hidden_command(path);
+    command.args(["-u", "-c", BRIDGE]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
     command
 }
 fn reply(reader: &mut BufReader<ChildStdout>) -> Result<BridgeReply> {
@@ -59,7 +63,7 @@ fn check_environment(path: &Path) -> Result<PythonEnvironment> {
     if !path.is_absolute() || !path.is_file() || !path.file_name().is_some_and(|name| name.to_string_lossy().to_ascii_lowercase().starts_with("python")) {
         return Err(error("invalid_python", "Choose an existing Python executable."));
     }
-    let mut child = Command::new(path).args(["-c", "import ipykernel,jupyter_client,sys; print(sys.version.split()[0])"])
+    let mut child = hidden_command(path).args(["-c", "import ipykernel,jupyter_client,sys; print(sys.version.split()[0])"])
         .stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|_| error("invalid_python", "Python could not start."))?;
     let deadline = Instant::now() + Duration::from_secs(5);
     while child.try_wait().map_err(|_| kernel_error("Python environment check failed."))?.is_none() {
@@ -78,12 +82,12 @@ pub(super) fn discover() -> Vec<PythonEnvironment> {
         for dir in std::env::split_paths(&paths) { candidates.push(dir.join("python.exe")); candidates.push(dir.join("python3.exe")); }
     }
     #[cfg(windows)]
-    if let Ok(output) = Command::new("py").arg("-0p").output() {
+    if let Ok(output) = hidden_command("py").arg("-0p").output() {
         if output.status.success() {
             candidates.extend(launcher_paths(&String::from_utf8_lossy(&output.stdout)));
         }
     }
-    if let Ok(output) = Command::new("uv").args(["--no-cache", "python", "list", "--only-installed"]).output() {
+    if let Ok(output) = hidden_command("uv").args(["--no-cache", "python", "list", "--only-installed"]).output() {
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             if let Some((_,path)) = line.split_once("     ") { candidates.push(PathBuf::from(path.trim())); }
         }

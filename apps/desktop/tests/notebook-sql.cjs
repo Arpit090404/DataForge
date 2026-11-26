@@ -65,6 +65,12 @@ const restoredPython = renderToStaticMarkup(React.createElement(PythonCodePanel,
 }));
 assert.match(restoredPython, /Code changed since run/);
 assert.match(restoredPython, /kernel state was not restored/);
+assert.match(restoredPython, /Notebook options.*Choose executable/);
+const missingPython = renderToStaticMarkup(React.createElement(PythonCodePanel, {
+  selected: '', onRun() {}, onInterrupt() {}, running: false, disabled: false, code: 'print(1)',
+  error: 'No compatible Python was found automatically. Open Notebook options, then Python environment, then Choose executable.',
+}));
+assert.equal((missingPython.match(/No compatible Python was found automatically/g) ?? []).length, 1);
 console.log('Notebook Python controls and output rendering passed.');
 const table = renderToStaticMarkup(React.createElement(PythonOutputView, { output: {
   kind: 'table', text: 'plain fallback', columns: ['name'], rows: [['<script>window.evil=true</script>']], truncated: true,
