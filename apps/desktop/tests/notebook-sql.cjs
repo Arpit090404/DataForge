@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
 const esbuild = require('esbuild');
@@ -20,7 +21,13 @@ for (const [state, icon] of [[undefined, 'play'], ['queued', 'play'], ['running'
   assert.match(gutter, new RegExp(`lucide-${icon}`));
   assert.doesNotMatch(gutter, /\[ \]|\[\*\]/);
   if (state) assert.match(gutter, new RegExp(`Code cell 2 ${state}`));
+  if (state === 'running') assert.match(gutter, /lucide-loader-circle[^>]*motion-safe:animate-spin/);
+  else assert.doesNotMatch(gutter, /motion-safe:animate-spin/);
 }
+
+const styles = fs.readFileSync(path.resolve(__dirname, '../src/styles.css'), 'utf8');
+assert.doesNotMatch(styles, /\.notebook-code-preview pre\s*\{/);
+assert.match(styles, /\.notebook-python-output\{[^}]*white-space:pre-wrap/);
 
 const sql = 'SELECT Name FROM source';
 const execution = { id: 'execution', dataset_id: 'dataset', operation_type: 'sql',

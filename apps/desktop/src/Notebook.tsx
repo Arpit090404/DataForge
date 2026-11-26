@@ -97,7 +97,7 @@ export function CodeGutter({ number, state, disabled, onRun, onStop }: { number:
   const StatusIcon = state === 'completed' ? Check : state === 'failed' || state === 'cancelled' ? CircleX : state === 'queued' ? Clock3 : running ? LoaderCircle : null;
   return <div className="notebook-code-gutter">
     <IconButton label={`${running ? 'Stop' : 'Run'} code cell ${number}`} disabled={disabled && !running} onClick={event => { event.stopPropagation(); if (running) onStop(); else onRun(); }}>{running ? <Square aria-hidden="true"/> : <Play aria-hidden="true"/>}</IconButton>
-    <span className="notebook-gutter-status" role="status">{StatusIcon && <Tooltip><TooltipTrigger render={<span tabIndex={0} aria-label={`Code cell ${number} ${state}`} className={`notebook-gutter-icon status-${state}`} />}><StatusIcon aria-hidden="true"/></TooltipTrigger><TooltipContent>{state}</TooltipContent></Tooltip>}</span>
+    <span className="notebook-gutter-status" role="status">{StatusIcon && <Tooltip><TooltipTrigger render={<span tabIndex={0} aria-label={`Code cell ${number} ${state}`} className={`notebook-gutter-icon status-${state}`} />}><StatusIcon aria-hidden="true" className={running ? 'motion-safe:animate-spin' : undefined}/></TooltipTrigger><TooltipContent>{state}</TooltipContent></Tooltip>}</span>
   </div>;
 }
 

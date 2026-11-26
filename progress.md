@@ -3,6 +3,10 @@
 **Updated:** 2026-11-26
 **Current state:** The local CSV, typed DuckDB analytics, and explicit trusted-user Notebook SQL/Python slices are implemented. Full Milestone 1 and autonomous code execution remain incomplete.
 
+## Notebook output and running indicator refinement (2026-11-26)
+
+Scoped Code preview `<pre>` styling to the source block so saved Python stdout and error output retain the same line breaks, code typography, and colors whether the cell is selected or not. The running gutter status icon now rotates when motion is permitted; the Stop button and status tooltip remain unchanged. Added focused rendering and stylesheet regression checks. `node tests/notebook-sql.cjs` passed with project file access; `npm.cmd run tauri:build` passed design/form checks, TypeScript, Vite, and native release compilation. The local executable was refreshed at `apps/desktop/src-tauri/target/release/dataforge.exe`. Native visual behavior remains for the user to check in the app.
+
 ## Project-scoped Python environment preference (2026-11-26)
 
 The Notebook now keys its remembered Python executable by stable project ID in local WebView storage. Reopening the same project revalidates and restores that choice; switching projects loads that project's own choice. A temporarily unavailable executable stays selected but cannot run until restored or changed in Notebook options. This setting is local to the Windows profile and does not travel with a copied project folder. The old global preference is not migrated to another project's setting to avoid applying the wrong interpreter.
