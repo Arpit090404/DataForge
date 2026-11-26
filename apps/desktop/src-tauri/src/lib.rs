@@ -441,6 +441,21 @@ async fn get_notebook_code_outputs(id: String, state: State<'_, ActiveProject>) 
     tauri::async_runtime::spawn_blocking(move || code_outputs::load(&project, &id)).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
+async fn clear_notebook_code_outputs(id: String, block_id: Option<String>, state: State<'_, ActiveProject>) -> Result<()> {
+    let project=active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || code_outputs::clear(&project,&id,block_id.as_deref())).await.map_err(|_|storage_error())?
+}
+#[tauri::command]
+async fn notebook_output_usage(state: State<'_, ActiveProject>) -> Result<code_outputs::OutputUsage> {
+    let project=active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || code_outputs::usage(&project)).await.map_err(|_|storage_error())?
+}
+#[tauri::command]
+async fn cleanup_notebook_outputs(state: State<'_, ActiveProject>) -> Result<code_outputs::OutputUsage> {
+    let project=active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || code_outputs::cleanup(&project)).await.map_err(|_|storage_error())?
+}
+#[tauri::command]
 async fn create_notebook(title: String, state: State<'_, ActiveProject>) -> Result<notebook::Notebook> {
     let project = active(&state)?;
     tauri::async_runtime::spawn_blocking(move || notebook::create_notebook_inner(&project, &title)).await.map_err(|_| storage_error())?
@@ -496,7 +511,7 @@ pub fn run() {
             run_analytics, run_notebook_sql, python_environments, inspect_python_environment, notebook_python_status, run_notebook_python,
             interrupt_notebook_python, restart_notebook_python, close_notebook_python,
             list_executions, cancel_execution, active_execution, export_result,
-            list_notebooks, get_notebook, get_notebook_code_outputs, create_notebook, rename_notebook, delete_notebook,
+            list_notebooks, get_notebook, get_notebook_code_outputs, clear_notebook_code_outputs, notebook_output_usage, cleanup_notebook_outputs, create_notebook, rename_notebook, delete_notebook,
             add_block, update_block, update_result_block, delete_block, move_block, get_execution_result])
         .run(tauri::generate_context!()).expect("DataForge could not start");
 }
