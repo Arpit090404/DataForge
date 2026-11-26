@@ -197,8 +197,10 @@ pub(super) fn sql_for_python(project: &Path, execution_id: &str) -> Result<Pytho
         columns.iter().any(|c|c.name.is_empty() || !names.insert(c.name.to_ascii_lowercase()) || !matches!(c.data_type.as_str(),"text"|"integer"|"decimal"|"boolean")) {
         return Err(unavailable());
     }
-    Ok(PythonTable { kind:"sql_result".into(),id:execution_id.into(),columns,rows,
-        has_more:snapshot.value["has_more"].as_bool().ok_or_else(unavailable)?,
+    let has_more=snapshot.value["has_more"].as_bool().ok_or_else(unavailable)?;
+    if has_more { return Err(error("input_limit","The saved SQL output is truncated and cannot be used as a complete Python input. Filter or aggregate it first.")); }
+    Ok(PythonTable { kind:"sql_result".into(),id:execution_id.into(),name:None,columns,rows,
+        has_more:false,
         source_fingerprint:fingerprint,representation_id:representation,duckdb_version:version })
 }
 

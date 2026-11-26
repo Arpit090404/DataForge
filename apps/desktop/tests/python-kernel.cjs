@@ -16,7 +16,7 @@ const receive = () => queue.length ? Promise.resolve(queue.shift()) : new Promis
   const timer = setTimeout(() => reject(new Error('Kernel reply timed out')), 20000);
   wake = item => { clearTimeout(timer); resolve(item); };
 });
-const send = (id, action, code, inputs) => child.stdin.write(JSON.stringify({ version: 1, id, action, code, inputs }) + '\n');
+const send = (id, action, code, inputs) => child.stdin.write(JSON.stringify({ version: 2, id, action, code, inputs }) + '\n');
 (async () => {
   try {
     assert.equal((await receive()).status, 'ready');
@@ -55,10 +55,22 @@ const send = (id, action, code, inputs) => child.stdin.write(JSON.stringify({ ve
     const imported = await receive();
     assert.equal(imported.status, 'succeeded');
     assert.ok(imported.outputs.some(item => item.kind === 'stdout' && /Int64.*1.25.*<NA>.*8.*True/.test(item.text)));
+    send('named', 'execute', 'a=dataforge.dataset("sales.csv"); b=dataforge.dataset("lookup.csv"); print(a.merge(b,on="name").iloc[0]["count"], a.attrs["dataforge"]["extent"])');
+    const request = await receive();
+    assert.equal(request.status, 'input_request');
+    assert.deepEqual(request.names, ['sales.csv', 'lookup.csv']);
+    child.stdin.write(JSON.stringify({ version: 2, id: 'stale', action: 'inputs', error: 'stale response' }) + '\n');
+    child.stdin.write(JSON.stringify({ version: 2, id: 'named', action: 'inputs', inputs: [
+      { ...inputs[0], name: 'sales.csv', has_more: false },
+      { kind: 'dataset', id: 'source-2', name: 'lookup.csv', columns: [{ name: 'name', data_type: 'text' }], rows: [['Ada'], ['Bob']], has_more: false, source_fingerprint: 'other-hash', representation_id: 'rep-2', duckdb_version: '1.4.5' },
+    ] }) + '\n');
+    const named = await receive();
+    assert.equal(named.status, 'succeeded');
+    assert.ok(named.outputs.some(item => item.text.includes('4 complete')));
     send('cleared', 'execute', 'dataforge.dataset()');
     const cleared = await receive();
     assert.equal(cleared.status, 'failed');
-    assert.ok(cleared.outputs.some(item => item.text.includes('Select this DataForge input')));
+    assert.ok(cleared.outputs.some(item => item.text.includes('literal registered dataset name')));
     if (process.env.DATAFORGE_TEST_MATPLOTLIB === '1') {
       send('plot', 'execute', [
         '%matplotlib inline',

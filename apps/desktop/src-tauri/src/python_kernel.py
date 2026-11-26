@@ -1,4 +1,5 @@
-"""Trusted local Notebook bridge. Protocol: one JSON object per line, version 1."""
+"""Trusted local Notebook bridge. Protocol: one JSON object per line, version 2."""
+import ast
 import base64
 import binascii
 import json
@@ -17,6 +18,9 @@ client = manager.client()
 client.start_channels()
 client.wait_for_ready(timeout=15)
 running = threading.Event()
+input_ready = threading.Event()
+input_response = {}
+pending_input_id = None
 MAX_OUTPUT_BYTES = 1024 * 1024
 MAX_IMAGE_BYTES = 768 * 1024
 
@@ -111,7 +115,7 @@ def output_size(item):
 
 def send(value):
     with lock:
-        sys.stdout.write(json.dumps({"version": 1, **value}, ensure_ascii=True) + "\n")
+        sys.stdout.write(json.dumps({"version": 2, **value}, ensure_ascii=True) + "\n")
         sys.stdout.flush()
 
 
@@ -122,12 +126,14 @@ def install_inputs(inputs):
 from decimal import Decimal as _df_Decimal
 class _DataForgeInputs:
     def __init__(self, payload):
-        self._inputs = {item["kind"]: item for item in _df_json.loads(payload)}
+        self._inputs = _df_json.loads(payload)
     def _frame(self, kind, selected_id=None):
         import pandas as _df_pd
-        item = self._inputs.get(kind)
-        if item is None or (selected_id is not None and selected_id != item["id"]):
-            raise ValueError("Select this DataForge input in the Code cell before running it")
+        matches = [item for item in self._inputs if item["kind"] == kind and
+                   (selected_id is None or selected_id in (item["id"], item.get("name")))]
+        if len(matches) != 1:
+            raise ValueError("Dataset unavailable or ambiguous. Use a registered name or stable dataset_<id> handle")
+        item = matches[0]
         columns = {}
         for index, column in enumerate(item["columns"]):
             values = [row[index] for row in item["rows"]]
@@ -147,6 +153,7 @@ class _DataForgeInputs:
             columns[column["name"]] = series
         frame = _df_pd.DataFrame(columns)
         frame.attrs["dataforge"] = {key: item[key] for key in ("kind", "id", "source_fingerprint", "representation_id", "duckdb_version", "has_more")}
+        frame.attrs["dataforge"]["extent"] = "complete" if not item["has_more"] else "truncated"
         return frame
     def dataset(self, dataset_id=None):
         return self._frame("dataset", dataset_id)
@@ -169,12 +176,37 @@ dataforge = _DataForgeInputs(''' + repr(payload) + ''')'''
 
 
 def execute(command):
+    global pending_input_id
     outputs = []
     size = 0
     count = None
     status = "succeeded"
     try:
-        install_inputs(command.get("inputs", []))
+        inputs = list(command.get("inputs", []))
+        names = []
+        try:
+            parsed = ast.parse(command["code"])
+        except SyntaxError:
+            parsed = None  # IPython syntax remains the kernel's responsibility.
+        for node in ast.walk(parsed) if parsed is not None else ():
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == "dataforge" and node.func.attr == "dataset":
+                if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+                    if not inputs:
+                        raise ValueError("Use a literal registered dataset name in dataforge.dataset(\"name\")")
+                    continue
+                if node.args[0].value not in names and not any(item.get("name") == node.args[0].value or item["id"] == node.args[0].value for item in inputs):
+                    names.append(node.args[0].value)
+        if names:
+            input_ready.clear()
+            input_response.clear()
+            pending_input_id = command["id"]
+            send({"id": command["id"], "status": "input_request", "names": names})
+            if not input_ready.wait(30):
+                raise TimeoutError("Dataset input request timed out")
+            if input_response.get("error"):
+                raise ValueError(input_response["error"])
+            inputs.extend(input_response.get("inputs", []))
+        install_inputs(inputs)
         message_id = client.execute(command["code"], store_history=True, allow_stdin=False, stop_on_error=True)
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
@@ -215,6 +247,7 @@ def execute(command):
         status = "failed"
         outputs.append({"kind": "error", "text": str(exc)[:500]})
     finally:
+        pending_input_id = None
         running.clear()
         send({"id": command["id"], "status": status, "count": count, "outputs": outputs})
 
@@ -225,7 +258,7 @@ try:
         command = {}
         try:
             command = json.loads(line)
-            if command.get("version") != 1:
+            if command.get("version") != 2:
                 raise ValueError("Unsupported bridge version")
             action = command.get("action")
             if action == "execute":
@@ -236,6 +269,10 @@ try:
                     threading.Thread(target=execute, args=(command,), daemon=True).start()
             elif action == "interrupt":
                 manager.interrupt_kernel()
+            elif action == "inputs" and running.is_set() and command.get("id") == pending_input_id:
+                input_response.clear()
+                input_response.update(command)
+                input_ready.set()
             elif action == "restart" and not running.is_set():
                 client.stop_channels()
                 manager.restart_kernel(now=True)
