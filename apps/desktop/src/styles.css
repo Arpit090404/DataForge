@@ -186,8 +186,8 @@
 .notebook-editor-toolbar{position:sticky;top:0;z-index:8;padding:var(--space-2) var(--space-page);border-bottom:1px solid var(--color-border);background:var(--color-surface)}
 .notebook-toolbar-inner{max-width:1120px;margin-inline:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-2)}
 .notebook-toolbar-identity{display:flex;align-items:center;gap:var(--space-1);min-width:0}
-.notebook-breadcrumb.ui-button{padding-inline:var(--space-1);font-size:var(--font-size-component);font-weight:var(--font-weight-semibold);color:var(--color-text-secondary)}
-.notebook-breadcrumb.ui-button:hover{text-decoration:underline}
+.notebook-breadcrumb.ui-button{padding-inline:var(--space-1);font-size:var(--font-size-component);font-weight:var(--font-weight-normal);color:var(--color-text-secondary)}
+.notebook-editor-toolbar .notebook-breadcrumb.ui-button:hover{background:transparent;text-decoration:underline}
 .notebook-path-divider{color:var(--color-text-subtle)}
 .notebook-title{flex:0 1 240px;min-width:80px;display:flex;align-items:center;border:0;padding:0;margin:0}
 .notebook-title:focus-within{outline:var(--focus-width) solid var(--color-focus-ring);outline-offset:2px;border-radius:var(--radius-small)}
