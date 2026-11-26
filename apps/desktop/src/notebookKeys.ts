@@ -20,7 +20,36 @@ export function decideDeletePress(armedId: string | null, selectedId: string, re
   return armedId === selectedId ? 'delete' : 'arm';
 }
 
-export function indentCode(text: string, start: number, end: number): [string, number, number] {
-  // shortcut: Tab indents at the selection start, upgrade if multi-line indentation becomes necessary.
-  return [text.slice(0, start) + '  ' + text.slice(start), start + 2, end + 2];
+export function editCodeIndent(text: string, start: number, end: number, key: 'Enter' | 'Tab', shift: boolean, language: 'python' | 'sql'): [string, number, number] {
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  if (key === 'Enter') {
+    const line = text.slice(lineStart, start);
+    const base = line.match(/^[ \t]*/)?.[0] ?? '';
+    const extra = language === 'python' ? /:\s*(?:#.*)?$/.test(line) : /(?:\(|\bCASE)\s*$/i.test(line);
+    const inserted = `\n${base}${extra ? '  ' : ''}`;
+    return [text.slice(0, start) + inserted + text.slice(end), start + inserted.length, start + inserted.length];
+  }
+  if (!shift && start === end) return [text.slice(0, start) + '  ' + text.slice(end), start + 2, start + 2];
+  const last = end > start && text[end - 1] === '\n' ? end - 1 : end;
+  const changes: { at: number; remove: number; insert: string }[] = [];
+  for (let at = lineStart; at <= last;) {
+    const rest = text.slice(at);
+    const remove = shift ? rest.startsWith('  ') ? 2 : rest.startsWith(' ') || rest.startsWith('\t') ? 1 : 0 : 0;
+    if (remove || !shift) changes.push({ at, remove, insert: shift ? '' : '  ' });
+    const next = text.indexOf('\n', at);
+    if (next < 0 || next >= last) break;
+    at = next + 1;
+  }
+  const move = (position: number) => {
+    let delta = 0;
+    for (const change of changes) {
+      if (position < change.at) break;
+      if (position < change.at + change.remove) return change.at + delta;
+      delta += change.insert.length - change.remove;
+    }
+    return position + delta;
+  };
+  let result = text;
+  for (const change of [...changes].reverse()) result = result.slice(0, change.at) + change.insert + result.slice(change.at + change.remove);
+  return [result, move(start), move(end)];
 }

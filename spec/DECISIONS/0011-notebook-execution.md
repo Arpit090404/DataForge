@@ -3,6 +3,10 @@
 - Status: Proposed for review.
 - Date: 2026-11-23
 
+## Python discovery and editor refinement (2026-11-26)
+
+The Rust host enumerates Python candidates from PATH, the Windows `py -0p` launcher, and the existing optional uv listing. It verifies each candidate can start and import `ipykernel` and `jupyter_client` before the Notebook selects it. A remembered local interpreter is revalidated on startup; the manual override and file picker live in Notebook options. Missing dependencies produce actionable guidance, with no automatic installation. Changing the resolved interpreter still starts a different kernel on the next run and does not restore variables. The existing Code textarea now handles Enter indentation and Tab/Shift+Tab selection edits without changing the Jupyter protocol, execution records, output persistence, or Notebook execution shortcuts.
+
 ## Manual output retention (2026-11-26)
 
 Clear Output and Clear All Outputs remove saved-output associations for the chosen Code cell or notebook. Immutable execution records, submitted code, status, timing, and provenance remain in project history. A cleared SQL output can no longer be selected as a Python `sql_result()` input. Output bytes remain in the project until the user explicitly confirms storage cleanup. Cleanup runs in one immediate SQLite transaction, removes associations to deleted cells, and deletes only snapshot and image blobs with no live references; shared content-addressed artifacts remain. The UI reports project-wide saved and reclaimable bytes. No automatic deletion policy is applied.
