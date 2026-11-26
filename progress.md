@@ -3,6 +3,28 @@
 **Updated:** 2026-11-26
 **Current state:** The local CSV, typed DuckDB analytics, and explicit trusted-user Notebook SQL/Python slices are implemented. Full Milestone 1 and autonomous code execution remain incomplete.
 
+## Notebook interface refinement (2026-11-26)
+
+The editor now separates the breadcrumb/title from a thin execution row. A compact, fixed Code-cell gutter uses shared square icon buttons for Run and Stop, with named and tooltip-equipped status icons beneath. The floating cell toolbar no longer shows execution words, and the execution row no longer duplicates Python Interrupt; cell-level interruption and Stop Run All remain. Plain-text Python output now uses the input code font size and line height. The selected and unselected Code frames share the same output styling. Insertion controls, execution handlers, persistence, and keyboard shortcuts were not changed. The new pattern is recorded in `spec/DESIGN_SYSTEM.md` and follows the repository's Impeccable token sidecar.
+
+**Verification:** `node tests/notebook-sql.cjs` passed rendered Run/Stop and status-icon assertions plus SQL/Python output rendering. `node tests/notebook-run.cjs` passed mixed sequence, failure, cancellation, and cleanup. `npm.cmd run build` passed design/form checks, TypeScript, and Vite with the existing large-chunk warning. `npm.cmd run tauri:build -- --debug` passed and the rebuilt native WebView2 app reopened the acceptance project and its saved Python/SQL outputs. At approximately 1440 × 900, the breadcrumb/title and separate execution row did not overlap; the fixed Run/status gutters aligned across both saved Code cells. The first Vite/render attempts were denied by the Windows filesystem sandbox; both passed with project-path access. Target sizes of 900 × 600 and 1280 × 800 and live Run/Stop transitions were not verified in this refinement. The earlier acceptance no-go remains until those checks and the previously observed garbled metadata are resolved.
+
+## Notebook v1 acceptance checkpoint (2026-11-26)
+
+The user stopped the native acceptance sweep after initial testing and will provide further suggestions. This is a partial checkpoint, not a completed release sign-off. No application code changed in this sweep.
+
+| Acceptance area | Evidence in this sweep |
+| --- | --- |
+| Create, edit, save, reopen | Created a notebook and edited a Code cell in the native WebView2 app. Run All saved it. Switching to a source and back restored the saved Python table and text without rerunning. Explicit notebook/project reopen remains unchecked. |
+| Python and rich output | An unavailable environment produced an inline error. Selecting an existing Python 3.14.6 environment then ran a Pandas DataFrame display and stdout; the native table and text rendered beneath the cell. |
+| SQL and interoperability | Registered `BigMart Sales.csv` from Downloads and ran a grouped SQL query over its registered source; five rows and the saved execution summary appeared. Native SQL-to-Python DataFrame selection remains unchecked. |
+| Run All, cancellation, restart, cleanup | Run All with an unavailable environment failed and stopped. Mixed-language Run All, cancellation, kernel restart, output cleanup, and notebook/project runtime shutdown remain unchecked natively. Automated coverage is noted below. |
+| Layout at 900 × 600 and 1280 × 800 | Not verified at either target size. The native window was inspected at approximately 1440 × 900. Its Notebook toolbar overlapped the title when a long Python environment path was selected. |
+
+The native screenshot also showed garbled separator text in Python execution metadata and SQL running labels. These are reproducible UI defects and remain unfixed at this checkpoint. The existing CSS grid lets the runtime actions exceed their column width, and `Notebook.tsx` contains corrupted literal strings. **Notebook v1 release-readiness verdict: no-go pending these visible fixes and the remaining native acceptance checks.** This verdict is about the incomplete sweep and observed defects; it does not negate the passing automated checks.
+
+**Automated verification:** `DATAFORGE_TEST_PYTHON` pointed to the selected existing environment for `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml --lib`, which passed 37/37, including a real kernel. All desktop `.cjs` tests passed; `tests/python-kernel.cjs` was rerun with the same environment after an initial run without the variable could not find a compatible interpreter. `npm.cmd run tauri:build -- --debug` passed design/form checks, TypeScript, Vite, Rust compilation, and produced a native executable. The Vite build retained its existing large-chunk warning. These checks preceded the native observations above. The user requested no further testing before fixes or the target-size checks were run.
+
 ## Notebook output retention and cleanup (2026-11-26)
 
 Code cell menus now offer Clear Output; Notebook options offer Clear All Outputs, project-wide saved/reclaimable usage, and confirmed permanent cleanup. Clearing removes saved-output links for the chosen cell or notebook and hides the current output without deleting execution history or provenance. It also makes a cleared SQL output unavailable as a future Python SQL-result input. Cleanup is explicit and transactional: it removes links to deleted cells, retains every live snapshot and referenced image, and reclaims only unreferenced blobs. Deduplicated images shared by different snapshots remain while referenced. No automatic policy or dependency was added.

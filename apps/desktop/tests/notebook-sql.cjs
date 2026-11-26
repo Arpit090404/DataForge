@@ -12,7 +12,15 @@ const compiled = new Module(filename, module);
 compiled.filename = filename;
 compiled.paths = Module._nodeModulePaths(path.dirname(filename));
 compiled._compile(code, filename);
-const { SqlCodePanel, PythonCodePanel, PythonOutputView, codeExecutionForBlock } = compiled.exports;
+const { SqlCodePanel, PythonCodePanel, PythonOutputView, CodeGutter, codeExecutionForBlock } = compiled.exports;
+
+for (const [state, icon] of [[undefined, 'play'], ['queued', 'play'], ['running', 'square'], ['completed', 'check'], ['failed', 'circle-x']]) {
+  const gutter = renderToStaticMarkup(React.createElement(CodeGutter, { number: 2, state, disabled: false, onRun() {}, onStop() {} }));
+  assert.match(gutter, new RegExp(`aria-label="${state === 'running' ? 'Stop' : 'Run'} code cell 2"`));
+  assert.match(gutter, new RegExp(`lucide-${icon}`));
+  assert.doesNotMatch(gutter, /\[ \]|\[\*\]/);
+  if (state) assert.match(gutter, new RegExp(`Code cell 2 ${state}`));
+}
 
 const sql = 'SELECT Name FROM source';
 const execution = { id: 'execution', dataset_id: 'dataset', operation_type: 'sql',
