@@ -34,6 +34,7 @@ type PythonRuntime = { status: 'stopped' | 'idle' | 'running' | 'unavailable'; p
 type PythonOutput = { kind: string; text: string; mime?: string; data?: string; columns?: string[]; rows?: string[][]; truncated?: boolean };
 type PythonResult = { execution_id: string; status: string; count: number | null; outputs: PythonOutput[]; duration_ms: number; python: string; restored?: boolean; recorded_code?: string };
 type SavedCodeOutput = { block_id: string; execution_id: string; kind: 'sql' | 'python'; code: string; status: string; value: unknown };
+type OutputUsage = { total_bytes: number; reclaimable_bytes: number; reclaimable_blobs: number };
 const numericColumnType = /^(?:integer|decimal)$/;
 
 export function codeExecutionForBlock(executions: Execution[], blockId: string): Execution | undefined {
@@ -196,6 +197,8 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   const [pythonRunningBlock, setPythonRunningBlock] = useState<string | null>(null);
   const [pythonRuntime, setPythonRuntime] = useState<PythonRuntime>({ status: 'stopped', python: null, environment: null });
   const [cellRuns, setCellRuns] = useState<Record<string, CodeRunStatus>>({});
+  const [outputUsage, setOutputUsage] = useState<OutputUsage | null>(null);
+  const [pendingOutputAction, setPendingOutputAction] = useState<'clear-all' | 'cleanup' | null>(null);
   const [runAllProgress, setRunAllProgress] = useState<{ current: number; total: number } | null>(null);
   const executionLock = useRef(false);
   const stopRunAllRequested = useRef(false);
@@ -227,6 +230,11 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     poll(); const timer = window.setInterval(poll, 1000);
     return () => { current = false; window.clearInterval(timer); };
   }, [active, notebook?.id]);
+  useEffect(() => { if (active && notebook) void refreshOutputUsage(); else setOutputUsage(null); }, [active, notebook?.id]);
+  async function refreshOutputUsage() {
+    try { setOutputUsage(await invoke<OutputUsage>('notebook_output_usage')); }
+    catch (failure) { setOutputUsage(null); setError(message(failure)); }
+  }
   useEffect(() => { if (active && editingId) { editorRef.current?.focus(); const [start, end] = cursor.current[editingId] ?? [0, 0]; editorRef.current?.setSelectionRange(start, end); } }, [active, editingId]);
   useEffect(() => { if (renamingId) requestAnimationFrame(() => renameInputRef.current?.focus()); }, [renamingId]);
   useEffect(() => () => { if (deleteTimer.current) clearTimeout(deleteTimer.current); }, []);
@@ -447,7 +455,20 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       stopRunAllRequested.current = false;
       setBusy(false);
       setRunAllProgress(null);
+      void refreshOutputUsage();
     }
+  }
+  async function clearOutputs(blockId?: string) {
+    if (!notebook || executionLock.current) return;
+    await invoke('clear_notebook_code_outputs', { id: notebook.id, blockId: blockId ?? null });
+    const keep = <T,>(current: Record<string, T>) => blockId ? Object.fromEntries(Object.entries(current).filter(([id]) => id !== blockId)) : {};
+    setSqlResults(keep); setSqlErrors(keep); setPythonResults(keep); setPythonErrors(keep); setCellRuns(keep);
+    await refreshOutputUsage();
+  }
+  async function cleanupOutputs() {
+    if (executionLock.current) return;
+    await invoke('cleanup_notebook_outputs');
+    await refreshOutputUsage();
   }
   async function stopExecution() {
     stopRunAllRequested.current = true;
@@ -673,6 +694,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
                   <section><h3>Editing</h3><dl><div><dt>Esc</dt><dd>Return to command mode</dd></div><div><dt>Tab</dt><dd>Indent Code</dd></div></dl></section>
                   <section><h3>Saving</h3><dl><div><dt>Ctrl+Enter</dt><dd>Save cell</dd></div><div><dt>Shift+Enter</dt><dd>Run Code or save Text, select next</dd></div><div><dt>Ctrl+S</dt><dd>Save notebook</dd></div></dl></section>
                   <p>SQL and trusted Python Code cells run locally. Python needs an existing ipykernel environment.</p>
+                  <section><h3>Saved output storage</h3><p>{outputUsage ? `${(outputUsage.total_bytes / 1024).toFixed(1)} KiB saved · ${(outputUsage.reclaimable_bytes / 1024).toFixed(1)} KiB reclaimable` : 'Loading usage…'}</p><p>Clearing output keeps execution history. Cleanup permanently removes unused snapshots and images.</p><div><Button variant="ghost" size="small" disabled={busy || !!analysisRunId || !notebook.blocks.some(cell => cell.kind === 'code')} onClick={() => setPendingOutputAction('clear-all')}>Clear All Outputs</Button><Button variant="ghost" size="small" disabled={busy || !!analysisRunId || !outputUsage?.reclaimable_blobs} onClick={() => setPendingOutputAction('cleanup')}>Clean up storage</Button></div></section>
                 </div>
               </PopoverContent>
             </Popover>
@@ -682,7 +704,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       <div className="notebook-blocks">{notebook.blocks.map((block, index) => {
         const draft = drafts[block.id] ?? block.content; const language = languages[block.id] ?? block.language;
         const changed = draft !== block.content || language !== block.language; const selected = selectedId === block.id; const editing = editingId === block.id;
-        const savedStatus = language === 'python' ? pythonResults[block.id]?.status : codeExecutionForBlock(sqlExecutions, block.id)?.status;
+        const savedStatus = language === 'python' ? pythonResults[block.id]?.status : sqlResults[block.id] || sqlErrors[block.id] ? codeExecutionForBlock(sqlExecutions, block.id)?.status : undefined;
         const runState = cellRuns[block.id] ?? (savedStatus === 'succeeded' ? 'completed' : savedStatus === 'interrupted' || savedStatus === 'cancelled' ? 'cancelled' : savedStatus ? 'failed' : undefined);
         const label = block.kind === 'markdown' ? 'Text' : block.kind === 'code' ? 'Code' : 'Result';
         const sqlPanel = <SqlCodePanel sqlText={draft} sources={sources} sourceId={sqlSources[block.id] ?? (readySources.length === 1 ? readySources[0].id : '')} onSourceChange={id => setSqlSources(current => ({ ...current, [block.id]: id }))} result={sqlResults[block.id]} execution={codeExecutionForBlock(sqlExecutions, block.id)} error={sqlErrors[block.id]} running={sqlRunningBlock === block.id} disabled={busy || !!analysisRunId} canCancel={sqlCanCancel} onRun={() => void executeCells([block])} onCancel={() => void cancelSql()}/>;
@@ -701,6 +723,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
               <DropdownMenuItem disabled={busy || index === 0} onClick={() => void action(() => move(block.id, 'up'))}>Move up</DropdownMenuItem>
               <DropdownMenuItem disabled={busy || index === notebook.blocks.length - 1} onClick={() => void action(() => move(block.id, 'down'))}>Move down</DropdownMenuItem>
               <DropdownMenuSeparator />
+              {block.kind === 'code' && <><DropdownMenuItem disabled={busy || !!analysisRunId} onClick={() => void action(() => clearOutputs(block.id))}>Clear Output</DropdownMenuItem><DropdownMenuSeparator /></>}
               <DropdownMenuItem destructive disabled={busy} onClick={() => setPendingDelete({ kind: 'cell', id: block.id })}>Delete</DropdownMenuItem>
             </DropdownMenuContent></DropdownMenu></div>
           {block.kind === 'result' ? block.execution_id ? <ResultBlock key={block.execution_id} executionId={block.execution_id} execution={executions.find(item => item.id === block.execution_id)} sources={sources} initialResult={analysisResult?.execution.id === block.execution_id ? analysisResult : undefined}/> : <p>Execution reference unavailable.</p>
@@ -712,6 +735,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       <NotebookAnalysisForm sources={sources} sourceId={analysisSourceId} onSourceChange={id => { setAnalysisSourceId(id); setConfiguration(defaultConfiguration()); setTargetResultId(null); setAnalysisError(''); }} columns={columns} schemaLoading={schemaLoading} schemaError={schemaError} config={configuration} onConfigChange={setConfiguration} targetResultId={targetResultId} onNewResult={() => { setTargetResultId(null); setAnalysisNotice("The next run will add a new result cell."); }} running={!!analysisRunId} canCancel={analysisCanCancel} notice={analysisNotice} error={analysisError} onRun={() => void runAnalysis()} onCancel={() => void cancelAnalysis()}/>
       {!!executions.length && <div className="notebook-add"><label htmlFor="execution-select">Saved execution</label><Select id="execution-select" value={executionId} onChange={e => setExecutionId(e.target.value)}><option value="">Choose an execution</option>{executions.map(item => <option key={item.id} value={item.id}>{notebookExecutionLabel(item, sources)}</option>)}</Select><Button disabled={busy || !succeeded} onClick={() => void action(async () => { const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId }); await reload(); setSelectedId(block.id); focusCell(block.id); })}>Add result</Button>{succeeded && <details className="notebook-execution-choice-details"><summary>Selected execution details</summary><small>Execution ID: {succeeded.id}<br/>Dataset ID: {succeeded.dataset_id}<br/>Source fingerprint: {succeeded.source_fingerprint}<br/>Recorded status: {succeeded.status}</small><div>Original parameters</div><pre>{succeeded.parameters}</pre></details>}</div>}
     </>}
+    <ConfirmationDialog open={pendingOutputAction !== null} title={pendingOutputAction === 'cleanup' ? 'Permanently clean up saved outputs?' : 'Clear all Code outputs?'} description={pendingOutputAction === 'cleanup' ? `Permanently remove ${outputUsage?.reclaimable_blobs ?? 0} unused blobs (${((outputUsage?.reclaimable_bytes ?? 0) / 1024).toFixed(1)} KiB) from this project? Execution records remain.` : 'Hide all saved Code outputs in this notebook? Execution records remain. Unused storage can be reclaimed separately.'} confirmLabel={pendingOutputAction === 'cleanup' ? 'Clean up' : 'Clear outputs'} destructive onCancel={() => setPendingOutputAction(null)} onConfirm={() => { const selected=pendingOutputAction; setPendingOutputAction(null); if (selected) void action(() => selected === 'cleanup' ? cleanupOutputs() : clearOutputs()); }}/>
     <ConfirmationDialog open={pendingDelete !== null} title={pendingDelete?.kind === 'notebook' ? 'Delete notebook?' : 'Delete cell?'} description={pendingDelete?.kind === 'notebook' ? `Delete Ã¢â‚¬Å“${pendingDelete.title}Ã¢â‚¬Â and all its cells? This cannot be undone.` : 'Delete this cell? This cannot be undone.'} confirmLabel="Delete" destructive onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete}/>
   </div>;
 }

@@ -3,6 +3,12 @@
 **Updated:** 2026-11-26
 **Current state:** The local CSV, typed DuckDB analytics, and explicit trusted-user Notebook SQL/Python slices are implemented. Full Milestone 1 and autonomous code execution remain incomplete.
 
+## Notebook output retention and cleanup (2026-11-26)
+
+Code cell menus now offer Clear Output; Notebook options offer Clear All Outputs, project-wide saved/reclaimable usage, and confirmed permanent cleanup. Clearing removes saved-output links for the chosen cell or notebook and hides the current output without deleting execution history or provenance. It also makes a cleared SQL output unavailable as a future Python SQL-result input. Cleanup is explicit and transactional: it removes links to deleted cells, retains every live snapshot and referenced image, and reclaims only unreferenced blobs. Deduplicated images shared by different snapshots remain while referenced. No automatic policy or dependency was added.
+
+**Verification:** `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml --lib code_outputs::tests -- --nocapture` passed 2/2, including shared image retention across distinct snapshots, clear/reopen behavior, immutable execution history, and rollback after a deliberately failed blob delete. `npm.cmd run build` passed design/form checks, TypeScript and Vite, with the existing bundle-size warning. Native WebView2 interaction was not exercised. SQLite may retain freed pages in its database file after cleanup; usage reports live blob bytes rather than operating-system file shrinkage.
+
 ## Notebook execution toolbar (2026-11-26)
 
 Run Cell and Run All now dispatch SQL and Python Code cells through their existing host commands in document order. Run All queues visible cell states and stops after a failed or interrupted execution; Stop requests SQL cancellation or Python interrupt. A synchronous UI gate prevents overlapping Code runs and typed analysis runs. Shift+Enter runs Code then advances, while Text still saves then advances. The toolbar selects an existing Python environment, browses for one, shows host-reported kernel status and active environment, and offers interrupt and restart. Per-cell queued, running, completed, failed, and cancelled indicators coexist with saved output and provenance. Python environment selection and restart moved out of each cell; cell Run and interrupt remain. Trusted local privilege notices remain beside SQL and Python output.

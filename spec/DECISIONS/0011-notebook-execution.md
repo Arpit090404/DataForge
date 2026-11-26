@@ -3,6 +3,10 @@
 - Status: Proposed for review.
 - Date: 2026-11-23
 
+## Manual output retention (2026-11-26)
+
+Clear Output and Clear All Outputs remove saved-output associations for the chosen Code cell or notebook. Immutable execution records, submitted code, status, timing, and provenance remain in project history. A cleared SQL output can no longer be selected as a Python `sql_result()` input. Output bytes remain in the project until the user explicitly confirms storage cleanup. Cleanup runs in one immediate SQLite transaction, removes associations to deleted cells, and deletes only snapshot and image blobs with no live references; shared content-addressed artifacts remain. The UI reports project-wide saved and reclaimable bytes. No automatic deletion policy is applied.
+
 ## Manual execution controls (2026-11-26)
 
 The Notebook toolbar runs the selected Code cell or all Code cells in document order, dispatching each through its existing SQL or Python host command. A single UI execution gate also covers typed analysis; Run All stops after a failed or interrupted cell and clears later queued indicators. Shift+Enter runs a Code cell then selects the next cell, while Text retains save-and-advance. Interrupt and restart operate on the active notebook's Jupyter kernel; the host reports stopped, running, idle, or unavailable status. SQL cancellation remains best effort through its existing execution ID. The toolbar's selected Python environment affects the next Python run; changing it starts a different kernel on that run and does not restore prior variables. Each Code run still creates its own immutable execution and bounded persisted output. This orchestration adds no agent execution or isolation claim.
