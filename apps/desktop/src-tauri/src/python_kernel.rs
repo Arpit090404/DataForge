@@ -22,6 +22,8 @@ pub(super) struct PythonOutput {
 }
 #[derive(Serialize)]
 pub(super) struct PythonResult { execution_id: String, status: String, count: Option<u64>, outputs: Vec<PythonOutput>, duration_ms: u128, python: String }
+#[derive(Serialize)]
+pub(super) struct PythonRuntime { status: &'static str, python: Option<String>, environment: Option<String> }
 
 struct Session {
     notebook: String, project: PathBuf, environment: PythonEnvironment,
@@ -86,6 +88,13 @@ pub(super) fn discover() -> Vec<PythonEnvironment> {
 pub(super) fn inspect(path: &str) -> Result<PythonEnvironment> { check_environment(Path::new(path)) }
 
 impl PythonKernels {
+    pub(super) fn status(&self, notebook: &str) -> PythonRuntime {
+        let Ok(slot)=self.0.lock() else { return PythonRuntime { status:"unavailable",python:None,environment:None } };
+        let Some(session)=slot.as_ref().filter(|session|session.notebook==notebook) else { return PythonRuntime { status:"stopped",python:None,environment:None } };
+        let alive=session.child.lock().ok().and_then(|mut child|child.try_wait().ok()).is_some_and(|status|status.is_none());
+        PythonRuntime { status:if !alive {"stopped"} else if session.running.load(Ordering::Acquire) {"running"} else {"idle"},
+            python:Some(session.environment.version.clone()), environment:Some(session.environment.path.clone()) }
+    }
     pub(super) fn is_running(&self) -> bool {
         self.0.lock().ok().and_then(|slot| slot.as_ref().map(|s|s.running.load(Ordering::Acquire))).unwrap_or(false)
     }
@@ -279,8 +288,10 @@ mod tests {
         let block_id = block["id"].as_str().unwrap();
         let kernels = PythonKernels::default();
         let control = crate::analytics::AnalyticsControl::default();
+        assert_eq!(kernels.status(notebook_id).status,"stopped");
         let first = execute(&kernels,path,notebook_id,block_id,code,&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
         assert_eq!(first.status,"succeeded"); assert_eq!(first.count,Some(1));
+        assert_eq!(kernels.status(notebook_id).status,"idle");
         assert!(first.outputs.iter().any(|item|item.kind=="stdout" && item.text.contains("hello")));
         let restored = crate::code_outputs::load(path,notebook_id).unwrap();
         assert_eq!(restored.len(),1);
@@ -306,16 +317,18 @@ mod tests {
             let until = Instant::now()+Duration::from_secs(5);
             while !kernels.is_running() && Instant::now()<until { std::thread::sleep(Duration::from_millis(20)); }
             assert!(kernels.is_running());
+            assert_eq!(kernels.status(notebook_id).status,"running");
             std::thread::sleep(Duration::from_millis(500));
             kernels.interrupt(notebook_id).unwrap();
             assert_eq!(task.join().unwrap().unwrap().status,"interrupted");
         });
         kernels.restart(notebook_id).unwrap();
+        assert_eq!(kernels.status(notebook_id).status,"idle");
         crate::notebook::update_block_inner(path,block_id,"value + 3",Some("python")).unwrap();
         let third = execute(&kernels,path,notebook_id,block_id,"value + 3",&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
         assert_eq!(third.status,"failed"); assert_eq!(third.count,Some(1));
         let count:i64 = db(path).unwrap().query_row("SELECT COUNT(*) FROM executions WHERE operation_type='python'",[],|r|r.get(0)).unwrap();
         assert_eq!(count,5);
-        kernels.close(); std::fs::remove_dir_all(root).unwrap();
+        kernels.close(); assert_eq!(kernels.status(notebook_id).status,"stopped"); std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -45,7 +45,7 @@ const pythonHtml = renderToStaticMarkup(React.createElement(PythonCodePanel, {
   sqlExecutions: [execution], sqlExecutionId: execution.id, onSqlExecutionChange() {},
   result: { status: 'succeeded', count: 2, duration_ms: 15, python: '3.12', outputs: [{ kind: 'stdout', text: 'hello' }, { kind: 'result', text: '7' }] },
 }));
-assert.match(pythonHtml, /Run Python/); assert.match(pythonHtml, /Restart kernel/);
+assert.match(pythonHtml, /Run Python/);
 assert.match(pythonHtml, /local.*privileges|full file and network privileges/); assert.match(pythonHtml, /hello/); assert.match(pythonHtml, /7/);
 assert.match(pythonHtml, /dataforge\.dataset\(\)/); assert.match(pythonHtml, /dataforge\.sql_result\(\)/);
 assert.match(pythonHtml, /sample\.csv/); assert.match(pythonHtml, /execution/);
