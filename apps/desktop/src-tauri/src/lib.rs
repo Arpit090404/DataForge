@@ -376,6 +376,10 @@ async fn inspect_python_environment(path: String) -> Result<python_kernel::Pytho
     tauri::async_runtime::spawn_blocking(move || python_kernel::inspect(&path)).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
+fn notebook_python_status(notebook_id: String, kernels: State<'_, python_kernel::PythonKernels>) -> python_kernel::PythonRuntime {
+    kernels.status(&notebook_id)
+}
+#[tauri::command]
 async fn run_notebook_python(notebook_id: String, block_id: String, code: String, python: String, execution_id: String,
     dataset_id: Option<String>, sql_execution_id: Option<String>, state: State<'_, ActiveProject>,
     kernels: State<'_, python_kernel::PythonKernels>, analytics: State<'_, analytics::AnalyticsControl>) -> Result<python_kernel::PythonResult> {
@@ -489,7 +493,7 @@ pub fn run() {
         .manage(analytics::AnalyticsControl::default())
         .manage(python_kernel::PythonKernels::default())
         .invoke_handler(tauri::generate_handler![create_project, open_project, register_csv, list_datasets, inspect_csv,
-            run_analytics, run_notebook_sql, python_environments, inspect_python_environment, run_notebook_python,
+            run_analytics, run_notebook_sql, python_environments, inspect_python_environment, notebook_python_status, run_notebook_python,
             interrupt_notebook_python, restart_notebook_python, close_notebook_python,
             list_executions, cancel_execution, active_execution, export_result,
             list_notebooks, get_notebook, get_notebook_code_outputs, create_notebook, rename_notebook, delete_notebook,

@@ -3,6 +3,10 @@
 - Status: Proposed for review.
 - Date: 2026-11-23
 
+## Manual execution controls (2026-11-26)
+
+The Notebook toolbar runs the selected Code cell or all Code cells in document order, dispatching each through its existing SQL or Python host command. A single UI execution gate also covers typed analysis; Run All stops after a failed or interrupted cell and clears later queued indicators. Shift+Enter runs a Code cell then selects the next cell, while Text retains save-and-advance. Interrupt and restart operate on the active notebook's Jupyter kernel; the host reports stopped, running, idle, or unavailable status. SQL cancellation remains best effort through its existing execution ID. The toolbar's selected Python environment affects the next Python run; changing it starts a different kernel on that run and does not restore prior variables. Each Code run still creates its own immutable execution and bounded persisted output. This orchestration adds no agent execution or isolation claim.
+
 ## Trusted local Python amendment (2026-11-25)
 
 An explicit Run on a saved Python Code cell may use an existing local environment with `ipykernel` and `jupyter_client`. DataForge discovers compatible executables on PATH or through an optional local uv listing; the user may select another existing executable with the file picker. The Rust host keeps one Jupyter kernel for the active notebook, owns execution records and accepts only bounded plain-text stream, result and exception messages from a versioned bridge. Variables persist until restart or notebook exit; execution counts identify order, not reproducibility. Interrupt uses Jupyter's kernel interrupt request; restart discards kernel state. The host and kernel run with the user's full local file and network privileges. Neither the protocol nor a subprocess is an OS sandbox. No agent may invoke this path, and no package installation is offered. SQL and typed analytical execution remain separate.
