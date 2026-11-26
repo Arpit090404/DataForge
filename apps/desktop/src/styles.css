@@ -195,8 +195,6 @@
 .notebook-save-status{color:var(--color-text-muted);font-size:var(--font-size-secondary);white-space:nowrap}
 .notebook-toolbar-actions{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1);min-width:0;padding-top:var(--space-2);border-top:1px solid var(--color-border)}
 .notebook-toolbar-actions .ui-button{font-size:var(--font-size-secondary)}
-.notebook-runtime-picker{min-width:0;max-width:220px}
-.notebook-runtime-picker .ui-select{width:100%;min-width:0}
 .notebook-blocks,.notebook-add{width:calc(100% - 2 * var(--space-page));max-width:1120px;margin:0 auto}
 .notebook-blocks{padding:var(--space-panel) 0 var(--space-3)}
 .notebook-markdown,.notebook-workspace .notebook-text-frame textarea{max-width:720px}
@@ -367,6 +365,7 @@ input[type="checkbox"]{accent-color:var(--color-accent)}
 .notebook-shortcuts dl{margin:0}.notebook-shortcuts dl>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--space-2);padding:var(--space-1) 0}
 .notebook-shortcuts dt{color:var(--color-text);font-weight:600;white-space:nowrap}.notebook-shortcuts dd{margin:0}
 .notebook-shortcuts p{margin:var(--space-1) 0 0;color:var(--color-text-muted)}
+.notebook-shortcuts .ui-select{width:100%;min-width:0;margin-top:var(--space-2)}
 .ui-popover-popup{width:min(300px,calc(100vw - 2 * var(--space-4)));max-height:calc(100vh - 2 * var(--space-4));overflow:auto;background:var(--color-surface-elevated);border:1px solid var(--color-border);border-radius:var(--radius-default);padding:var(--space-3);line-height:1.6;color:var(--color-text-secondary);font-size:var(--font-size-secondary);white-space:normal;box-shadow:0 6px 18px var(--color-shadow);outline:none}
 .ui-popover-popup:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}
 .ui-tooltip-popup{max-width:min(280px,calc(100vw - 2 * var(--space-4)));padding:var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-small);background:var(--color-surface-elevated);color:var(--color-text);font-size:var(--font-size-secondary);line-height:1.4;white-space:normal;overflow-wrap:anywhere;box-shadow:0 6px 18px var(--color-shadow);pointer-events:none}

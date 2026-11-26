@@ -77,13 +77,28 @@ pub(super) fn discover() -> Vec<PythonEnvironment> {
     if let Some(paths) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&paths) { candidates.push(dir.join("python.exe")); candidates.push(dir.join("python3.exe")); }
     }
+    #[cfg(windows)]
+    if let Ok(output) = Command::new("py").arg("-0p").output() {
+        if output.status.success() {
+            candidates.extend(launcher_paths(&String::from_utf8_lossy(&output.stdout)));
+        }
+    }
     if let Ok(output) = Command::new("uv").args(["--no-cache", "python", "list", "--only-installed"]).output() {
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             if let Some((_,path)) = line.split_once("     ") { candidates.push(PathBuf::from(path.trim())); }
         }
     }
-    candidates.sort(); candidates.dedup();
-    candidates.into_iter().filter_map(|path| check_environment(&path).ok()).collect()
+    let mut seen = std::collections::HashSet::new();
+    candidates.into_iter().filter(|path| seen.insert(path.to_string_lossy().to_ascii_lowercase()))
+        .filter_map(|path| check_environment(&path).ok()).collect()
+}
+#[cfg(windows)]
+fn launcher_paths(output: &str) -> Vec<PathBuf> {
+    output.lines().filter_map(|line| {
+        let start = line.find(":\\")?;
+        let letter = line[..start].chars().last().filter(|ch| ch.is_ascii_alphabetic())?;
+        Some(PathBuf::from(format!("{}{}", letter, line[start..].trim())))
+    }).collect()
 }
 pub(super) fn inspect(path: &str) -> Result<PythonEnvironment> { check_environment(Path::new(path)) }
 
@@ -230,6 +245,12 @@ pub(super) fn execute(kernels: &PythonKernels, project: &Path, notebook: &str, b
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn parses_windows_launcher_interpreters() {
+        assert_eq!(launcher_paths(" -V:3.13 * C:\\Python313\\python.exe\n -V:3.12 C:\\Users\\Me\\Python312\\python.exe\n"),
+            vec![PathBuf::from("C:\\Python313\\python.exe"), PathBuf::from("C:\\Users\\Me\\Python312\\python.exe")]);
+    }
     #[test]
     fn selected_dataset_and_sql_result_reach_real_kernel_as_dataframes() {
         let Ok(python)=std::env::var("DATAFORGE_TEST_PYTHON") else { return };
