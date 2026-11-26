@@ -1,7 +1,13 @@
 # DataForge progress
 
-**Updated:** 2026-11-25
+**Updated:** 2026-11-26
 **Current state:** The local CSV, typed DuckDB analytics, and explicit trusted-user Notebook SQL/Python slices are implemented. Full Milestone 1 and autonomous code execution remain incomplete.
+
+## Selected SQL–Python DataFrame inputs (2026-11-26)
+
+Python Code cells can now attach one ready registered dataset and one successful saved SQL execution result through explicit Notebook selectors. The Rust host obtains up to 200 rows from its managed DuckDB representation or the SQL execution's persisted bounded output, checks ownership/status and transfer limits, and sends typed values plus source fingerprint, representation ID, engine version and truncation to the existing Jupyter bridge. The Python API is `dataforge.dataset()` and `dataforge.sql_result()`, returning Pandas DataFrames with provenance in `df.attrs["dataforge"]`. Input IDs and provenance are saved in the Python execution parameters; Code outputs and kernel persistence behavior remain unchanged. Clearing a selection clears that helper input on the next run. No database path or writable handle is passed by the integration API. This is trusted local Python with the user's normal OS privileges, not an isolation boundary. Arrow was not added for the bounded JSON transfer.
+
+**Verification:** With an existing external Python environment containing ipykernel, jupyter_client and Pandas, `cargo test --offline --manifest-path apps/desktop/src-tauri/Cargo.toml --lib` passed 36/36, including a real SQL execution and real kernel run that combined the dataset and SQL DataFrames, checked nullable integer typing and provenance, rejected a missing SQL execution, capped a 250-row dataset at 200, rejected a changed source, and cleared selected inputs on a later run. `node tests/python-kernel.cjs` passed typed DataFrame, null, decimal, boolean, selected-ID, clearing, existing rich output and lifecycle cases against the real kernel. `node tests/notebook-sql.cjs` passed input-selector and existing output rendering checks. `npm.cmd run build` passed design/form checks, TypeScript and Vite (with the existing large-chunk warning). Native WebView2 selection/click-through was not exercised. Only the first 200 rows of each selected input are transferred; SQL source context can be incomplete lineage, and a persistent kernel can retain DataFrames assigned in earlier cells.
 
 ## Persisted Notebook Code outputs (2026-11-25)
 

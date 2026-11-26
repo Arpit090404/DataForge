@@ -59,12 +59,16 @@ export function SqlCodePanel({ sqlText, sources, sourceId, onSourceChange, resul
   </div>;
 }
 
-export function PythonCodePanel({ environments, selected, onSelect, onBrowse, onRun, onInterrupt, onRestart, result, error, running, disabled, code }: {
+export function PythonCodePanel({ environments, selected, onSelect, onBrowse, onRun, onInterrupt, onRestart, result, error, running, disabled, code,
+  sources, datasetId, onDatasetChange, sqlExecutions, sqlExecutionId, onSqlExecutionChange }: {
   environments: PythonEnvironment[]; selected: string; onSelect: (path: string) => void; onBrowse: () => void;
   onRun: () => void; onInterrupt: () => void; onRestart: () => void; result?: PythonResult; error?: string;
-  running: boolean; disabled: boolean; code: string;
+  running: boolean; disabled: boolean; code: string; sources?: Source[]; datasetId?: string; onDatasetChange?: (id: string) => void;
+  sqlExecutions?: Execution[]; sqlExecutionId?: string; onSqlExecutionChange?: (id: string) => void;
 }) {
   return <div className="notebook-sql-panel notebook-python-panel">
+    <div className="notebook-sql-controls"><label>Dataset <Select value={datasetId ?? ''} disabled={running || disabled} onChange={event => onDatasetChange?.(event.target.value)}><option value="">None</option>{sources?.filter(source => source.status === 'ready').map(source => <option key={source.id} value={source.id}>{source.name}</option>)}</Select></label><label>SQL result <Select value={sqlExecutionId ?? ''} disabled={running || disabled} onChange={event => onSqlExecutionChange?.(event.target.value)}><option value="">None</option>{sqlExecutions?.filter(run => run.status === 'succeeded').map(run => <option key={run.id} value={run.id}>{run.id.slice(0, 8)} · {run.dataset_id}</option>)}</Select></label></div>
+    <p className="notebook-muted">Select inputs, then use <code>dataforge.dataset()</code> or <code>dataforge.sql_result()</code>. Each returns a DataFrame with provenance in <code>df.attrs["dataforge"]</code>; at most 200 rows per input are transferred.</p>
     <div className="notebook-sql-controls"><label>Python <Select value={selected} disabled={running || disabled} onChange={event => onSelect(event.target.value)}><option value="">Choose environment</option>{environments.map(env => <option key={env.path} value={env.path}>{env.version} Ã‚Â· {env.path}</option>)}</Select></label><Button type="button" variant="ghost" size="small" disabled={running || disabled} onClick={onBrowse}>BrowseÃ¢â‚¬Â¦</Button><Button type="button" variant="secondary" size="small" loading={running} disabled={disabled || !selected || !code.trim()} onClick={onRun}>Run Python</Button>{running ? <Button type="button" variant="ghost" size="small" onClick={onInterrupt}>Interrupt</Button> : <Button type="button" variant="ghost" size="small" disabled={disabled || !selected} onClick={onRestart}>Restart kernel</Button>}</div>
     <p className="notebook-sql-disclosure">Trusted Python runs locally with your account's full file and network privileges. Variables persist within this notebook's kernel until restart. Tables, PNG/JPEG images, and plain text are shown; executable HTML is never rendered.</p>
     {!environments.length && <p className="notebook-muted">No compatible Python found automatically. Choose an existing Python executable with ipykernel and jupyter_client.</p>}
@@ -182,6 +186,8 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
   const pendingSql = useRef<string | null>(null);
   const [pythonEnvironments, setPythonEnvironments] = useState<PythonEnvironment[]>([]);
   const [pythonPath, setPythonPath] = useState('');
+  const [pythonDatasets, setPythonDatasets] = useState<Record<string, string>>({});
+  const [pythonSqlInputs, setPythonSqlInputs] = useState<Record<string, string>>({});
   const [pythonResults, setPythonResults] = useState<Record<string, PythonResult>>({});
   const [pythonErrors, setPythonErrors] = useState<Record<string, string>>({});
   const [pythonRunningBlock, setPythonRunningBlock] = useState<string | null>(null);
@@ -385,7 +391,8 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     pendingPython.current = true; setPythonRunningBlock(block.id); setBusy(true);
     setPythonErrors(current => ({ ...current, [block.id]: '' }));
     try { await saveCell(block.id);
-      const result = await invoke<PythonResult>('run_notebook_python', { notebookId: notebook.id, blockId: block.id, code, python: pythonPath, executionId: id });
+      const result = await invoke<PythonResult>('run_notebook_python', { notebookId: notebook.id, blockId: block.id, code, python: pythonPath, executionId: id,
+        datasetId: pythonDatasets[block.id] || null, sqlExecutionId: pythonSqlInputs[block.id] || null });
       setPythonResults(current => ({ ...current, [block.id]: { ...result, recorded_code: code } }));
     } catch (failure) { setPythonErrors(current => ({ ...current, [block.id]: message(failure) })); }
     finally { pendingPython.current = false; setPythonRunningBlock(null); setBusy(false); }
@@ -400,13 +407,18 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
       invoke<Execution[]>('list_executions'),
     ]);
     const sql: Record<string, Result> = {}, sqlErrors: Record<string, string> = {}, python: Record<string, PythonResult> = {};
-    const sourceIds: Record<string, string> = {};
+    const sourceIds: Record<string, string> = {}, pythonDatasetIds: Record<string, string> = {}, pythonSqlIds: Record<string, string> = {};
     for (const item of saved) {
       const block = next.blocks.find(cell => cell.id === item.block_id && cell.language === item.kind);
       if (!block) continue;
       if (item.kind === 'python') {
         const value = item.value as PythonResult;
         if (Array.isArray(value.outputs)) python[item.block_id] = { ...value, restored: true, recorded_code: item.code };
+        const run = runs.find(entry => entry.id === item.execution_id);
+        if (run) { try { for (const input of JSON.parse(run.parameters).inputs ?? []) {
+          if (input.kind === 'dataset') pythonDatasetIds[item.block_id] = input.id;
+          if (input.kind === 'sql_result') pythonSqlIds[item.block_id] = input.id;
+        } } catch { /* Saved output remains readable. */ } }
       } else {
         const execution = runs.find(run => run.id === item.execution_id);
         if (!execution) continue;
@@ -420,6 +432,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
     setTargetResultId(null); setAnalysisResult(null); setAnalysisSourceId(''); setConfiguration(defaultConfiguration());
     setAnalysisNotice(''); setAnalysisError(''); setSqlExecutions(runs.filter(run => run.operation_type === 'sql'));
     setSqlResults(sql); setSqlErrors(sqlErrors); setSqlSources(sourceIds); setPythonResults(python); setPythonErrors({});
+    setPythonDatasets(pythonDatasetIds); setPythonSqlInputs(pythonSqlIds);
     if (next.blocks[0]) focusCell(next.blocks[0].id);
   }
   async function reload(id = notebook?.id) { if (id) { setNotebook(await invoke<Notebook>('get_notebook', { id })); await refresh(); } }
@@ -603,7 +616,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectName, 
         const changed = draft !== block.content || language !== block.language; const selected = selectedId === block.id; const editing = editingId === block.id;
         const label = block.kind === 'markdown' ? 'Text' : block.kind === 'code' ? 'Code' : 'Result';
         const sqlPanel = <SqlCodePanel sqlText={draft} sources={sources} sourceId={sqlSources[block.id] ?? (readySources.length === 1 ? readySources[0].id : '')} onSourceChange={id => setSqlSources(current => ({ ...current, [block.id]: id }))} result={sqlResults[block.id]} execution={codeExecutionForBlock(sqlExecutions, block.id)} error={sqlErrors[block.id]} running={sqlRunningBlock === block.id} disabled={busy || !!analysisRunId} canCancel={sqlCanCancel} onRun={() => void runSql(block)} onCancel={() => void cancelSql()}/>;
-        const pythonPanel = <PythonCodePanel environments={pythonEnvironments} selected={pythonPath} onSelect={setPythonPath} onBrowse={() => void browsePython()} onRun={() => void runPython(block)} onInterrupt={() => void interruptPython()} onRestart={() => void restartPython()} result={pythonResults[block.id]} error={pythonErrors[block.id]} running={pythonRunningBlock === block.id} disabled={busy || !!analysisRunId} code={draft}/>;
+        const pythonPanel = <PythonCodePanel environments={pythonEnvironments} selected={pythonPath} onSelect={setPythonPath} onBrowse={() => void browsePython()} onRun={() => void runPython(block)} onInterrupt={() => void interruptPython()} onRestart={() => void restartPython()} result={pythonResults[block.id]} error={pythonErrors[block.id]} running={pythonRunningBlock === block.id} disabled={busy || !!analysisRunId} code={draft} sources={sources} datasetId={pythonDatasets[block.id]} onDatasetChange={id => setPythonDatasets(current => ({ ...current, [block.id]: id }))} sqlExecutions={sqlExecutions} sqlExecutionId={pythonSqlInputs[block.id]} onSqlExecutionChange={id => setPythonSqlInputs(current => ({ ...current, [block.id]: id }))}/>;
         return <Fragment key={block.id}><InsertionSlot disabled={busy} location={`before cell ${index + 1}`} insert={kind => void action(() => insert(kind, block.id, 'before'))}/><section ref={element => { cellRefs.current[block.id] = element; }} tabIndex={selected ? 0 : -1} aria-label={`${label} cell ${index + 1}`} className={`notebook-block${block.kind === 'code' ? ' notebook-block--code' : ''}${selected ? ' selected' : ''}${editing ? ' editing' : ''}`} onClick={event => onCellClick(event, block.id)}>
           <div className={`notebook-block-toolbar${changed || deleteArmed === block.id ? ' has-state' : ''}`}>{(changed || deleteArmed === block.id) && <span className="notebook-cell-state">{changed && <em>Unsaved</em>}{deleteArmed === block.id && <em>Press D again to delete</em>}</span>}{block.kind === 'code' && <Select aria-label={`Language for code cell ${index + 1}`} value={language ?? 'python'} disabled={busy} onChange={event => { const value = event.target.value as 'python' | 'sql'; setLanguages(current => { const next = { ...current }; if (value === block.language) delete next[block.id]; else next[block.id] = value; return next; }); }}><option value="python">Python</option><option value="sql">SQL</option></Select>}
             {selected && !editing && block.kind !== 'result' && <Button variant="ghost" size="small" aria-label={`Edit ${label} cell ${index + 1}`} disabled={busy} onClick={event => { event.stopPropagation(); setEditingId(block.id); }}>Edit {label}</Button>}

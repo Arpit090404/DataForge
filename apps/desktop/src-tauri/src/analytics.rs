@@ -109,9 +109,16 @@ pub(super) struct Execution {
     result_row_count: Option<u64>, error_summary: Option<String>, duckdb_version: Option<String>, source_fingerprint: String,
 }
 #[derive(Debug, Serialize, Deserialize)]
-pub(super) struct ResultColumn { name: String, data_type: String }
+pub(super) struct ResultColumn { pub(super) name: String, pub(super) data_type: String }
 #[derive(Debug, Serialize)]
 pub(super) struct AnalyticsResult { execution: Execution, columns: Vec<ResultColumn>, rows: Vec<Vec<Option<String>>>, total_rows: Option<u64>, has_more: bool }
+#[derive(Serialize, Deserialize)]
+pub(super) struct PythonTable {
+    pub(super) kind: String, pub(super) id: String, pub(super) columns: Vec<ResultColumn>,
+    pub(super) rows: Vec<Vec<Option<String>>>, pub(super) has_more: bool,
+    pub(super) source_fingerprint: String, pub(super) representation_id: String,
+    pub(super) duckdb_version: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ColumnDef { name: String, data_type: String, physical: String }
 
@@ -407,8 +414,9 @@ fn read_sql_result(conn: &DuckConnection, sql: &str, table: &str, source_columns
     if names.len() > MAX_COLUMNS { return Err(error("result_limit", "The SQL result has more than 128 columns.")); }
     let output = names.into_iter().enumerate().map(|(index, name)| {
         let data_type = format!("{:?}", statement.column_type(index));
-        ResultColumn { name, data_type: if data_type.starts_with("Int") || data_type.starts_with("UInt") { "integer" }
-            else if data_type.starts_with("Float") || data_type.starts_with("Decimal") { "decimal" } else { "text" }.into() }
+        ResultColumn { name, data_type: if data_type.starts_with("Int") || data_type.starts_with("UInt") || data_type.starts_with("HugeInt") { "integer" }
+            else if data_type.starts_with("Float") || data_type.starts_with("Decimal") { "decimal" }
+            else if data_type.starts_with("Boolean") { "boolean" } else { "text" }.into() }
     }).collect();
     let has_more = rows.len() > 200;
     rows.truncate(200);
@@ -644,6 +652,34 @@ pub(super) fn run_analytics_with_id(project: &Path, dataset_id: &str, request: A
     }
     work
 }
+pub(super) fn dataset_for_python(project: &Path, dataset_id: &str, control: &AnalyticsControl) -> Result<PythonTable> {
+    let metadata = db(project)?;
+    let dataset = list_datasets_inner(&metadata)?.into_iter().find(|item| item.id == dataset_id)
+        .ok_or_else(|| error("dataset_missing", "Choose a registered project dataset."))?;
+    if dataset.status != "ready" || dataset.size_bytes > MAX_SOURCE_BYTES {
+        return Err(error("dataset_unavailable", "The selected dataset is changed, missing, or exceeds the analytical limit."));
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let (mut guard,cancelled,timed_out) = control.start(&id)?;
+    let deadline = Instant::now() + QUERY_DEADLINE;
+    let config = Config::default().enable_external_access(false).and_then(|c|c.enable_autoload_extension(false))
+        .and_then(|c|c.max_memory("256MB")).and_then(|c|c.threads(2))
+        .and_then(|c|c.with("max_temp_directory_size","256MB")).map_err(|_| analytics_error())?;
+    let conn = DuckConnection::open_with_flags(project.join("analytics.duckdb"),config).map_err(|_| analytics_error())?;
+    let interrupt = conn.interrupt_handle();
+    control.attach(&id,interrupt.clone())?;
+    let (stop,wake) = mpsc::channel();
+    let timeout_flag=timed_out.clone();
+    std::thread::spawn(move || if wake.recv_timeout(QUERY_DEADLINE).is_err() { timeout_flag.store(true,Ordering::Relaxed); interrupt.interrupt(); });
+    guard.stop_timer=Some(stop);
+    let (representation_id,table,columns,duckdb_version) = representation_for(&metadata,&conn,&dataset,&cancelled,&timed_out,deadline)?;
+    let request=AnalyticsRequest { kind:"rows".into(),filters:None,sort:Vec::new(),group_by:Vec::new(),aggregations:Vec::new(),limit:Some(200),offset:Some(0) };
+    let (output,rows,has_more)=read_result(&conn,&request,&columns,&table,&cancelled,&timed_out,deadline)?;
+    check(&cancelled,&timed_out,deadline)?;
+    Ok(PythonTable { kind:"dataset".into(),id:dataset.id,columns:output,rows,has_more,
+        source_fingerprint:dataset.fingerprint,representation_id,duckdb_version })
+}
+
 pub(super) fn list_executions_inner(project: &Path) -> Result<Vec<Execution>> {
     let metadata = db(project)?;
     let mut stmt = metadata.prepare("SELECT id,dataset_id,operation_type,parameters,started_at,completed_at,status,result_row_count,error_summary,duckdb_version,source_fingerprint FROM executions ORDER BY started_at DESC,id DESC LIMIT 200")
