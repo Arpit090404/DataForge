@@ -2,6 +2,10 @@
 
 **Status:** Draft baseline. The user-supplied dark three-panel mockup is the primary reference.
 
+## Trusted Notebook dataset access amendment (2026-11-27)
+
+SQL and Python Code cells run on explicit local-user action. They no longer show per-cell registered-dataset selectors. Each Code panel lists usable registered names or stable handles in compact, token-styled text beside the existing Run and output controls. SQL references quoted names and can join registered datasets; Python uses literal `dataforge.dataset("name")` calls and retains its existing optional saved SQL-result selector. An ambiguous display name shows its stable handle. A Python input that exceeds 200 rows or transfer bytes fails with a visible error rather than supplying a partial DataFrame. SQL output still labels its bounded display when more rows exist. The existing left Sources navigation and central Notebook layout remain; this phase adds no Data Explorer inspector. Earlier inert-Code and selected-source wording below is superseded for this trusted local-user execution slice.
+
 ## Intent
 A quiet, compact, technical desktop workbench. Avoid generic chatbot layouts, conventional BI home pages, and overloaded IDE toolbars.
 

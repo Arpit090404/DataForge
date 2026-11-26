@@ -10,7 +10,7 @@ const BRIDGE: &str = include_str!("python_kernel.py");
 #[derive(Clone, Serialize)]
 pub(super) struct PythonEnvironment { path: String, version: String }
 #[derive(Deserialize)]
-struct BridgeReply { version: u32, id: String, status: String, count: Option<u64>, outputs: Option<Vec<PythonOutput>> }
+struct BridgeReply { version: u32, id: String, status: String, count: Option<u64>, outputs: Option<Vec<PythonOutput>>, names: Option<Vec<String>> }
 #[derive(Deserialize, Serialize)]
 pub(super) struct PythonOutput {
     kind: String, text: String,
@@ -51,7 +51,7 @@ fn reply(reader: &mut BufReader<ChildStdout>) -> Result<BridgeReply> {
     let mut line = String::new();
     reader.take(8 * 1024 * 1024).read_line(&mut line).map_err(|_| kernel_error("Python kernel output could not be read."))?;
     let reply: BridgeReply = serde_json::from_str(&line).map_err(|_| kernel_error("Python kernel stopped or returned invalid output."))?;
-    if reply.version != 1 { return Err(kernel_error("Unsupported Python kernel protocol.")); }
+    if reply.version != 2 { return Err(kernel_error("Unsupported Python kernel protocol.")); }
     Ok(reply)
 }
 fn send(session: &Session, value: serde_json::Value) -> Result<()> {
@@ -141,13 +141,13 @@ impl PythonKernels {
         let slot = self.0.lock().map_err(|_| kernel_error("Python kernel state is unavailable."))?;
         let session = slot.as_ref().filter(|s| s.notebook == notebook).ok_or_else(|| kernel_error("No Python kernel is active for this notebook."))?;
         session.interrupted.store(true, Ordering::Release);
-        send(session, serde_json::json!({"version":1,"id":"interrupt","action":"interrupt"}))
+        send(session, serde_json::json!({"version":2,"id":"interrupt","action":"interrupt"}))
     }
     pub(super) fn restart(&self, notebook: &str) -> Result<()> {
         let slot = self.0.lock().map_err(|_| kernel_error("Python kernel state is unavailable."))?;
         let session = slot.as_ref().filter(|s| s.notebook == notebook).ok_or_else(|| kernel_error("No Python kernel is active for this notebook."))?;
         if session.running.load(Ordering::Acquire) { return Err(kernel_error("Interrupt the running cell before restarting.")); }
-        send(session, serde_json::json!({"version":1,"id":"restart","action":"restart"}))?;
+        send(session, serde_json::json!({"version":2,"id":"restart","action":"restart"}))?;
         let mut output = session.output.lock().map_err(|_| kernel_error("Python kernel is unavailable."))?;
         let response = reply(&mut output)?;
         if response.status != "restarted" { return Err(kernel_error("Python kernel restart failed.")); }
@@ -159,7 +159,7 @@ impl PythonKernels {
 }
 impl Session {
     fn close(&self) {
-        let _ = send(self, serde_json::json!({"version":1,"id":"shutdown","action":"shutdown"}));
+        let _ = send(self, serde_json::json!({"version":2,"id":"shutdown","action":"shutdown"}));
         if let Ok(mut child) = self.child.lock() {
             let until = Instant::now() + Duration::from_secs(2);
             while Instant::now() < until { if child.try_wait().ok().flatten().is_some() { return; } std::thread::sleep(Duration::from_millis(20)); }
@@ -195,17 +195,41 @@ pub(super) fn execute(kernels: &PythonKernels, project: &Path, notebook: &str, b
     session.interrupted.store(false,Ordering::Release);
     let started = now(); let clock = Instant::now();
     let project_id: String = metadata.query_row("SELECT id FROM project LIMIT 1",[],|r|r.get(0)).map_err(|_| kernel_error("Project metadata is unavailable."))?;
-    let provenance: Vec<_> = inputs.iter().map(|item|serde_json::json!({"kind":item.kind,"id":item.id,
+    let provenance: Vec<_> = inputs.iter().map(|item|serde_json::json!({"kind":item.kind,"id":item.id,"name":item.name,
         "source_fingerprint":item.source_fingerprint,"representation_id":item.representation_id,
         "duckdb_version":item.duckdb_version,"has_more":item.has_more})).collect();
-    let parameters = serde_json::json!({"version":1,"notebook_id":notebook,"code_block_id":block,"code":code,"python":session.environment.version,"inputs":provenance}).to_string();
+    let mut parameters = serde_json::json!({"version":2,"notebook_id":notebook,"code_block_id":block,"code":code,"python":session.environment.version,"inputs":provenance}).to_string();
     metadata.execute("INSERT INTO executions (id,project_id,dataset_id,source_fingerprint,operation_type,parameters,started_at,status,schema_version) VALUES (?1,?2,'','','python',?3,?4,'running',3)",params![id,project_id,parameters,started])
         .map_err(|_| kernel_error("Python execution could not be recorded."))?;
     let work = (|| {
-        send(&session,serde_json::json!({"version":1,"id":id,"action":"execute","code":code,"inputs":inputs}))?;
+        send(&session,serde_json::json!({"version":2,"id":id,"action":"execute","code":code,"inputs":&inputs}))?;
         let mut output = session.output.lock().map_err(|_| kernel_error("Python kernel is unavailable."))?;
-        let response = reply(&mut output)?;
+        let response = loop {
+            let response = reply(&mut output)?;
+            if response.id != id { return Err(kernel_error("Python kernel response did not match the cell.")); }
+            if response.status != "input_request" { break response; }
+            let names = response.names.ok_or_else(|| kernel_error("Python requested invalid dataset names."))?;
+            if names.is_empty() || names.len() > 16 || names.iter().any(|name| name.is_empty() || name.len() > 255) {
+                return Err(kernel_error("Python requested too many or invalid dataset names."));
+            }
+            let resolved = names.iter().map(|name| crate::analytics::dataset_for_python(project,name,analytics)).collect::<Result<Vec<_>>>();
+            let answer = match resolved {
+                Ok(tables) if serde_json::to_vec(&inputs.iter().chain(tables.iter()).collect::<Vec<_>>()).map_err(|_| kernel_error("Python inputs could not be serialized."))?.len() <= 3*1024*1024 => {
+                    let response = serde_json::json!({"version":2,"id":id,"action":"inputs","inputs":&tables});
+                    inputs.extend(tables);
+                    response
+                },
+                Ok(_) => serde_json::json!({"version":2,"id":id,"action":"inputs","error":"Named datasets exceed the 3 MiB Python transfer limit."}),
+                Err(failure) => serde_json::json!({"version":2,"id":id,"action":"inputs","error":failure.message}),
+            };
+            send(&session,answer)?;
+        };
         if response.id != id { return Err(kernel_error("Python kernel response did not match the cell.")); }
+        let provenance: Vec<_> = inputs.iter().map(|item|serde_json::json!({"kind":item.kind,"id":item.id,"name":item.name,
+            "source_fingerprint":item.source_fingerprint,"representation_id":item.representation_id,
+            "duckdb_version":item.duckdb_version,"has_more":item.has_more})).collect();
+        parameters = serde_json::json!({"version":2,"notebook_id":notebook,"code_block_id":block,"code":code,"python":session.environment.version,"inputs":provenance}).to_string();
+        metadata.execute("UPDATE executions SET parameters=?1 WHERE id=?2",params![parameters,id]).map_err(|_| kernel_error("Python input provenance could not be recorded."))?;
         let outputs = response.outputs.unwrap_or_default();
         let mut bytes = 0usize;
         if outputs.len() > 200 || outputs.iter().any(|o| {
@@ -265,6 +289,9 @@ mod tests {
         let source=root.join("sample.csv");
         std::fs::write(&source,"Name,Value,Active\nAda,10,true\nBob,20,false\n").unwrap();
         let dataset=crate::register_csv_inner(path,source.to_str().unwrap()).unwrap();
+        let lookup=root.join("lookup.csv");
+        std::fs::write(&lookup,"Name,Weight\nAda,1.25\nBob,2.50\n").unwrap();
+        let lookup_dataset=crate::register_csv_inner(path,lookup.to_str().unwrap()).unwrap();
         let note=serde_json::to_value(crate::notebook::create_notebook_inner(path,"Mixed").unwrap()).unwrap();
         let note_id=note["id"].as_str().unwrap();
         let sql="SELECT SUM(CAST(Value AS INTEGER)) AS total FROM source";
@@ -272,29 +299,50 @@ mod tests {
         let control=crate::analytics::AnalyticsControl::default();
         let sql_result=crate::analytics::run_notebook_sql_inner(path,&dataset.id,sql_block["id"].as_str().unwrap(),sql,&control,uuid::Uuid::new_v4().to_string()).unwrap();
         let sql_id=serde_json::to_value(&sql_result).unwrap()["execution"]["id"].as_str().unwrap().to_string();
-        let code="a=dataforge.dataset(); b=dataforge.sql_result(); print(a['Value'].dtype, b['total'].dtype, a.iloc[0]['Value'] + b.iloc[0]['total'], a.attrs['dataforge']['source_fingerprint'])";
+        let code="a=dataforge.dataset('sample.csv'); c=dataforge.dataset('lookup.csv'); b=dataforge.sql_result(); joined=a.merge(c,on='Name'); print(a['Value'].dtype, a['Active'].dtype, c['Weight'].dtype, b['total'].dtype, joined.iloc[0]['Weight'], a.iloc[0]['Value'] + b.iloc[0]['total'], a.attrs['dataforge']['source_fingerprint'], c.attrs['dataforge']['id'])";
         let block=serde_json::to_value(crate::notebook::add_block_inner(path,note_id,"code",code,None,None,None,Some("python")).unwrap()).unwrap();
         let block_id=block["id"].as_str().unwrap();
         let kernels=PythonKernels::default();
-        let result=execute(&kernels,path,note_id,block_id,code,&python,&uuid::Uuid::new_v4().to_string(),Some(&dataset.id),Some(&sql_id),&control).unwrap();
-        assert_eq!(result.status,"succeeded");
-        assert!(result.outputs.iter().any(|o|o.kind=="stdout" && o.text.contains("Int64") && o.text.contains("40") && o.text.contains(&dataset.fingerprint)));
+        let result=execute(&kernels,path,note_id,block_id,code,&python,&uuid::Uuid::new_v4().to_string(),None,Some(&sql_id),&control).unwrap();
+        assert_eq!(result.status,"succeeded","{}",result.outputs.iter().map(|o|o.text.as_str()).collect::<Vec<_>>().join(" | "));
+        assert!(result.outputs.iter().any(|o|o.kind=="stdout" && o.text.contains("Int64") && o.text.contains("boolean") && o.text.contains("1.25") && o.text.contains("40") && o.text.contains(&dataset.fingerprint) && o.text.contains(&lookup_dataset.id)));
         let parameters:String=db(path).unwrap().query_row("SELECT parameters FROM executions WHERE id=?1",[&result.execution_id],|r|r.get(0)).unwrap();
         let recorded:serde_json::Value=serde_json::from_str(&parameters).unwrap();
-        assert_eq!(recorded["inputs"][0]["id"],dataset.id);
-        assert_eq!(recorded["inputs"][1]["id"],sql_id);
+        assert_eq!(recorded["inputs"].as_array().unwrap().len(),3);
+        assert!(recorded["inputs"].as_array().unwrap().iter().any(|input| input["id"]==dataset.id));
+        assert!(recorded["inputs"].as_array().unwrap().iter().any(|input| input["id"]==lookup_dataset.id));
+        assert!(recorded["inputs"].as_array().unwrap().iter().any(|input| input["id"]==sql_id));
         assert!(!parameters.contains(&project.project.path));
         assert_eq!(std::fs::read_to_string(&source).unwrap(),"Name,Value,Active\nAda,10,true\nBob,20,false\n");
+        crate::notebook::update_block_inner(path,block_id,"dataforge.dataset('missing.csv')",Some("python")).unwrap();
+        let missing=execute(&kernels,path,note_id,block_id,"dataforge.dataset('missing.csv')",&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
+        assert_eq!(missing.status,"failed");
+        assert!(missing.outputs.iter().any(|o|o.text.contains("No registered dataset")));
         crate::notebook::update_block_inner(path,block_id,"dataforge.dataset()",Some("python")).unwrap();
         let cleared=execute(&kernels,path,note_id,block_id,"dataforge.dataset()",&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
         assert_eq!(cleared.status,"failed");
-        assert!(cleared.outputs.iter().any(|o|o.text.contains("Select this DataForge input")));
+        assert!(cleared.outputs.iter().any(|o|o.text.contains("literal registered dataset name")));
         assert!(crate::code_outputs::sql_for_python(path,"missing").is_err());
         let large=root.join("many.csv");
         std::fs::write(&large,format!("Value\n{}",(0..250).map(|n|format!("{n}\n")).collect::<String>())).unwrap();
         let large_dataset=crate::register_csv_inner(path,large.to_str().unwrap()).unwrap();
-        let page=crate::analytics::dataset_for_python(path,&large_dataset.id,&control).unwrap();
-        assert_eq!(page.rows.len(),200); assert!(page.has_more);
+        assert_eq!(crate::analytics::dataset_for_python(path,&large_dataset.id,&control).unwrap_err().code,"input_limit");
+        crate::notebook::update_block_inner(path,block_id,"dataforge.dataset('many.csv')",Some("python")).unwrap();
+        let limited=execute(&kernels,path,note_id,block_id,"dataforge.dataset('many.csv')",&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
+        assert_eq!(limited.status,"failed");
+        assert!(limited.outputs.iter().any(|o|o.text.contains("200-row Python transfer limit")));
+        let mut combined_code=String::new();
+        for index in 0..5 {
+            let name=format!("bulk{index}.csv");
+            let file=root.join(&name);
+            std::fs::write(&file,format!("Text\n{}",(0..200).map(|_|format!("{}\n","x".repeat(3500))).collect::<String>())).unwrap();
+            crate::register_csv_inner(path,file.to_str().unwrap()).unwrap();
+            combined_code.push_str(&format!("dataforge.dataset('{name}')\n"));
+        }
+        crate::notebook::update_block_inner(path,block_id,&combined_code,Some("python")).unwrap();
+        let combined=execute(&kernels,path,note_id,block_id,&combined_code,&python,&uuid::Uuid::new_v4().to_string(),None,None,&control).unwrap();
+        assert_eq!(combined.status,"failed");
+        assert!(combined.outputs.iter().any(|o|o.text.contains("3 MiB Python transfer limit")));
         std::fs::write(&source,"Name,Value,Active\nChanged,99,true\n").unwrap();
         assert_eq!(crate::analytics::dataset_for_python(path,&dataset.id,&control).err().unwrap().code,"dataset_unavailable");
         kernels.close(); std::fs::remove_dir_all(root).unwrap();

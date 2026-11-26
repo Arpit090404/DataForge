@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs::{self, File}, io::{Read, Write}, path::{Path, PathBuf}, process::{Child, Command, Stdio}, sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex}, time::{Duration, Instant}};
+use std::{collections::{HashMap, HashSet}, fs::{self, File}, io::{Read, Write}, path::{Path, PathBuf}, process::{Child, Command, Stdio}, sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex}, time::{Duration, Instant}};
 
 use duckdb::{appender_params_from_iter, params_from_iter, types::{Value, ValueRef}, Config, Connection as DuckConnection, InterruptHandle};
 use rusqlite::{params, OptionalExtension};
@@ -8,6 +8,7 @@ use crate::{db, error, list_datasets_inner, now, source_info, AppError, Result};
 
 const MATERIALIZER_VERSION: &str = "csv-text-v1";
 const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SQL_SOURCE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_SOURCE_ROWS: usize = 250_000;
 const MAX_COLUMNS: usize = 128;
 const MAX_RESULT_BYTES: usize = 1024 * 1024;
@@ -112,15 +113,42 @@ pub(super) struct Execution {
 pub(super) struct ResultColumn { pub(super) name: String, pub(super) data_type: String }
 #[derive(Debug, Serialize)]
 pub(super) struct AnalyticsResult { execution: Execution, columns: Vec<ResultColumn>, rows: Vec<Vec<Option<String>>>, total_rows: Option<u64>, has_more: bool }
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct PythonTable {
-    pub(super) kind: String, pub(super) id: String, pub(super) columns: Vec<ResultColumn>,
+    pub(super) kind: String, pub(super) id: String, pub(super) name: Option<String>, pub(super) columns: Vec<ResultColumn>,
     pub(super) rows: Vec<Vec<Option<String>>>, pub(super) has_more: bool,
     pub(super) source_fingerprint: String, pub(super) representation_id: String,
     pub(super) duckdb_version: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct ColumnDef { name: String, data_type: String, physical: String }
+
+fn dataset_handle(id: &str) -> String { format!("dataset_{}", id.replace('-', "")) }
+fn dataset_names(datasets: &[crate::Dataset]) -> HashMap<String, Vec<String>> {
+    let mut counts = HashMap::new();
+    for dataset in datasets { *counts.entry(dataset.name.to_lowercase()).or_insert(0usize) += 1; }
+    datasets.iter().map(|dataset| {
+        let mut names = vec![dataset_handle(&dataset.id)];
+        if !dataset.name.eq_ignore_ascii_case("source") && !dataset.name.to_lowercase().starts_with("dataset_")
+            && counts[&dataset.name.to_lowercase()] == 1 { names.push(dataset.name.clone()); }
+        (dataset.id.clone(), names)
+    }).collect()
+}
+fn resolve_dataset<'a>(datasets: &'a [crate::Dataset], name: &str) -> Result<&'a crate::Dataset> {
+    if let Some(dataset) = datasets.iter().find(|item| item.id.eq_ignore_ascii_case(name) || dataset_handle(&item.id).eq_ignore_ascii_case(name)) { return Ok(dataset); }
+    let matches: Vec<_> = datasets.iter().filter(|item| item.name.eq_ignore_ascii_case(name)).collect();
+    match matches.as_slice() {
+        [dataset] => Ok(dataset),
+        [] => Err(error("dataset_missing", "No registered dataset has that name or ID.")),
+        _ => Err(error("dataset_ambiguous", "Several datasets have that name. Use the stable dataset_<id> name.")),
+    }
+}
+fn sql_mentions_name(sql: &str, name: &str) -> bool {
+    let query = sql.to_lowercase();
+    let quoted = format!("\"{}\"", name.replace('"', "\"\"")).to_lowercase();
+    query.contains(&quoted) || (name.starts_with("dataset_") && query.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+        .any(|word| word == name.to_lowercase()))
+}
 
 fn validate_page(offset: usize, limit: usize) -> Result<()> {
     if !(1..=200).contains(&limit) || offset > 100_000 {
@@ -388,12 +416,11 @@ fn sql_value(value: ValueRef<'_>) -> Option<String> {
         other => Some(format!("{other:?}")),
     }
 }
-fn read_sql_result(conn: &DuckConnection, sql: &str, table: &str, source_columns: &[ColumnDef],
+fn read_sql_result(conn: &DuckConnection, sql: &str,
     cancelled: &AtomicBool, timed_out: &AtomicBool, deadline: Instant) -> Result<(Vec<ResultColumn>,Vec<Vec<Option<String>>>,bool)> {
-    let alias = source_columns.iter().map(|column| format!("{} AS \"{}\"", column.physical, column.name.replace('"', "\"\""))).collect::<Vec<_>>().join(",");
-    let query = format!("WITH source AS (SELECT {alias} FROM {table}) {}", sql.trim().trim_end_matches(';'));
+    let query = sql.trim().trim_end_matches(';');
     check(cancelled, timed_out, deadline)?;
-    let mut statement = conn.prepare(&query).map_err(|e| error("sql_error", e.to_string().chars().take(500).collect::<String>()))?;
+    let mut statement = conn.prepare(query).map_err(|e| error("sql_error", e.to_string().chars().take(500).collect::<String>()))?;
     let mut cursor = statement.query([]).map_err(|e| error("sql_error", e.to_string().chars().take(500).collect::<String>()))?;
     let mut rows = Vec::new(); let mut bytes = 0usize;
     while let Some(row) = cursor.next().map_err(|e| error("sql_error", e.to_string().chars().take(500).collect::<String>()))? {
@@ -424,7 +451,9 @@ fn read_sql_result(conn: &DuckConnection, sql: &str, table: &str, source_columns
 }
 
 #[derive(Serialize, Deserialize)]
-struct SqlWorkerRequest { protocol_version: u32, database: PathBuf, table: String, columns: Vec<ColumnDef>, version: String, sql: String }
+struct SqlRelation { name: String, table: String, columns: Vec<ColumnDef> }
+#[derive(Serialize, Deserialize)]
+struct SqlWorkerRequest { protocol_version: u32, database: PathBuf, relations: Vec<SqlRelation>, version: String, sql: String }
 #[derive(Serialize, Deserialize)]
 struct SqlWorkerResponse {
     protocol_version: u32,
@@ -438,7 +467,7 @@ pub fn sql_worker_main() -> i32 {
         let mut input = String::new();
         std::io::stdin().take(32 * 1024).read_to_string(&mut input).map_err(|_| analytics_error())?;
         let request: SqlWorkerRequest = serde_json::from_str(&input).map_err(|_| analytics_error())?;
-        if request.protocol_version != 1 { return Err(analytics_error()); }
+        if request.protocol_version != 2 { return Err(analytics_error()); }
         let config = Config::default().access_mode(duckdb::AccessMode::ReadOnly)
             .and_then(|c|c.enable_external_access(false)).and_then(|c|c.enable_autoload_extension(false))
             .and_then(|c|c.max_memory("256MB")).and_then(|c|c.threads(2))
@@ -450,11 +479,28 @@ pub fn sql_worker_main() -> i32 {
         }
         let cancelled = AtomicBool::new(false);
         let timed_out = AtomicBool::new(false);
-        let (columns, rows, has_more) = read_sql_result(&conn, &request.sql, &request.table, &request.columns,
+        if request.relations.len() > 65 { return Err(error("dataset_limit", "SQL can access at most 32 registered datasets in this phase.")); }
+        let mut seen = HashSet::new();
+        for relation in &request.relations {
+            validate_representation(&relation.table, &relation.columns)?;
+            if relation.name.is_empty() || relation.name.len() > 255 || !seen.insert(relation.name.to_lowercase()) { return Err(analytics_error()); }
+            let projection = relation.columns.iter().map(|column| {
+                let expression = match column.data_type.as_str() {
+                    "integer" => format!("TRY_CAST({} AS BIGINT)", column.physical),
+                    "decimal" => format!("TRY_CAST({} AS DOUBLE)", column.physical),
+                    "boolean" => format!("TRY_CAST({} AS BOOLEAN)", column.physical),
+                    _ => column.physical.clone(),
+                };
+                format!("{expression} AS \"{}\"", column.name.replace('"', "\"\""))
+            }).collect::<Vec<_>>().join(",");
+            conn.execute_batch(&format!("CREATE TEMP VIEW \"{}\" AS SELECT {projection} FROM {}", relation.name.replace('"', "\"\""), relation.table))
+                .map_err(|_| error("sql_worker_error", "Could not expose the registered dataset to SQL."))?;
+        }
+        let (columns, rows, has_more) = read_sql_result(&conn, &request.sql,
             &cancelled, &timed_out, Instant::now() + QUERY_DEADLINE)?;
-        Ok(SqlWorkerResponse { protocol_version: 1, columns, rows, has_more, error_code: None, error_message: None })
+        Ok(SqlWorkerResponse { protocol_version: 2, columns, rows, has_more, error_code: None, error_message: None })
     })().unwrap_or_else(|failure| SqlWorkerResponse {
-        protocol_version: 1, columns: vec![], rows: vec![], has_more: false,
+        protocol_version: 2, columns: vec![], rows: vec![], has_more: false,
         error_code: Some(failure.code.into()), error_message: Some(failure.message),
     });
     let Ok(json) = serde_json::to_string(&response) else { return 1 };
@@ -508,7 +554,7 @@ fn execute_sql_worker(request: &SqlWorkerRequest, control: &AnalyticsControl, ex
     let json = text.lines().find_map(|line| line.strip_prefix(WORKER_MARKER))
         .ok_or_else(|| error("sql_worker_error", "The SQL worker returned no result."))?;
     let response: SqlWorkerResponse = serde_json::from_str(json).map_err(|_| analytics_error())?;
-    if response.protocol_version != 1 || response.rows.len() > 200 || response.columns.len() > MAX_COLUMNS ||
+    if response.protocol_version != 2 || response.rows.len() > 200 || response.columns.len() > MAX_COLUMNS ||
         response.rows.iter().any(|row| row.len() != response.columns.len()) ||
         response.rows.iter().flatten().flatten().map(String::len).sum::<usize>() > MAX_RESULT_BYTES {
         return Err(error("sql_worker_error", "The SQL worker returned an invalid result."));
@@ -531,17 +577,36 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
         "SELECT content,language FROM notebook_blocks WHERE id=?1 AND kind='code'", [block_id], |r| Ok((r.get(0)?,r.get(1)?)))
         .map_err(|_| error("invalid_block", "Choose a saved SQL Code cell."))?;
     if language != "sql" || saved_sql != sql { return Err(error("invalid_block", "Save the SQL Code cell before running it.")); }
-    let dataset = list_datasets_inner(&metadata)?.into_iter().find(|item| item.id == dataset_id)
-        .ok_or_else(|| error("dataset_missing", "Choose a registered source."))?;
-    if dataset.status != "ready" { return Err(error("file_changed", "The source is missing or changed. Review it before running SQL.")); }
-    if dataset.size_bytes > MAX_SOURCE_BYTES { return Err(error("dataset_limit", "This CSV exceeds the 64 MB analytical limit.")); }
+    let available = list_datasets_inner(&metadata)?;
+    let names = dataset_names(&available);
+    let legacy_source_allowed = !dataset_id.is_empty() || available.iter().filter(|item|item.status=="ready").count()==1;
+    let source_alias = dataset_id.is_empty() && legacy_source_allowed
+        && sql.to_lowercase().split(|ch: char| !ch.is_alphanumeric() && ch != '_').any(|word|word=="source");
+    let ambiguous = available.iter().any(|item| available.iter().filter(|other|other.name.eq_ignore_ascii_case(&item.name)).count()>1
+        && sql_mentions_name(sql,&item.name));
+    let datasets: Vec<_> = if dataset_id.is_empty() { available.into_iter().filter(|item|
+        names[&item.id].iter().any(|name|sql_mentions_name(sql,name)) || source_alias && item.status=="ready").collect() }
+        else { available.into_iter().filter(|item| item.id == dataset_id).collect() };
+    if ambiguous && dataset_id.is_empty() { return Err(error("dataset_ambiguous", "Several datasets have that name. Use a stable dataset_<id> handle.")); }
+    if datasets.is_empty() { return Err(error("dataset_missing", "Reference a registered dataset by quoted name or stable dataset_<id> handle. Duplicate names require the stable handle.")); }
+    if datasets.len() > 32 { return Err(error("dataset_limit", "SQL can access at most 32 registered datasets in this phase.")); }
+    if datasets.iter().any(|item| item.status != "ready") {
+        return Err(error("dataset_unavailable", "A registered dataset is missing or changed. Review it before running SQL."));
+    }
+    if datasets.iter().any(|item| item.size_bytes > MAX_SOURCE_BYTES) {
+        return Err(error("dataset_limit", "A registered CSV exceeds the 64 MB analytical limit."));
+    }
+    if datasets.iter().map(|item|item.size_bytes).sum::<u64>() > MAX_SQL_SOURCE_BYTES {
+        return Err(error("dataset_limit", "The referenced SQL datasets exceed the 256 MB combined source limit."));
+    }
     let (_guard, cancelled, timed_out) = control.start(&execution_id)?;
     let deadline = Instant::now() + QUERY_DEADLINE;
     let project_id: String = metadata.query_row("SELECT id FROM project LIMIT 1", [], |r| r.get(0)).map_err(|_| analytics_error())?;
-    let parameters = serde_json::json!({"version":1,"sql":sql,"code_block_id":block_id,"source_alias":"source","limit":200}).to_string();
+    let input_ids: Vec<_> = datasets.iter().map(|item| serde_json::json!({"dataset_id":item.id,"source_fingerprint":item.fingerprint,"names":names[&item.id]})).collect();
+    let mut parameters = serde_json::json!({"version":2,"sql":sql,"code_block_id":block_id,"inputs":input_ids,"limit":200}).to_string();
     let started_at = now();
     metadata.execute("INSERT INTO executions (id,project_id,dataset_id,source_fingerprint,operation_type,parameters,started_at,status,schema_version)
-        VALUES (?1,?2,?3,?4,'sql',?5,?6,'running',2)", params![execution_id,project_id,dataset_id,dataset.fingerprint,parameters,started_at])
+        VALUES (?1,?2,?3,?4,'sql',?5,?6,'running',2)", params![execution_id,project_id,datasets[0].id,datasets[0].fingerprint,parameters,started_at])
         .map_err(|_| analytics_error())?;
     let work = (|| {
         let statement = sql.trim().trim_end_matches(';');
@@ -559,17 +624,28 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
         let timer = std::thread::spawn(move || if wake.recv_timeout(QUERY_DEADLINE).is_err() {
             timeout_flag.store(true, Ordering::Relaxed); interrupt.interrupt();
         });
-        let materialized = representation_for(&metadata, &conn, &dataset, &cancelled, &timed_out, deadline);
+        let materialized = datasets.iter().map(|dataset| {
+            representation_for(&metadata, &conn, dataset, &cancelled, &timed_out, deadline)
+        }).collect::<Result<Vec<_>>>();
         let _ = stop.send(());
         let _ = timer.join();
-        let (representation_id, table, columns, version) = materialized?;
+        let materialized = materialized?;
+        let (representation_id, _, _, version) = &materialized[0];
+        let pinned: Vec<_> = datasets.iter().zip(&materialized).map(|(item,(id,_,_,engine))|
+            serde_json::json!({"dataset_id":item.id,"source_fingerprint":item.fingerprint,"representation_id":id,"duckdb_version":engine,"names":names[&item.id]})).collect();
+        parameters = serde_json::json!({"version":2,"sql":sql,"code_block_id":block_id,"inputs":pinned,"limit":200}).to_string();
+        let mut relations = Vec::new();
+        for (dataset, (_, table, columns, _)) in datasets.iter().zip(&materialized) {
+            for name in &names[&dataset.id] { relations.push(SqlRelation { name:name.clone(),table:table.clone(),columns:columns.clone() }); }
+        }
+        if datasets.len() == 1 && legacy_source_allowed { relations.push(SqlRelation { name:"source".into(),table:materialized[0].1.clone(),columns:materialized[0].2.clone() }); }
         control.clear_interrupt(&execution_id)?;
         drop(conn);
         check(&cancelled,&timed_out,deadline)?;
-        metadata.execute("UPDATE executions SET representation_id=?1,duckdb_version=?2 WHERE id=?3",
-            params![representation_id,version,execution_id]).map_err(|_| analytics_error())?;
-        let response = execute_sql_worker(&SqlWorkerRequest { protocol_version: 1, database: project.join("analytics.duckdb"), table,
-            columns, version: version.clone(), sql: sql.into() }, control, &execution_id, &cancelled, &timed_out, deadline)?;
+        metadata.execute("UPDATE executions SET representation_id=?1,duckdb_version=?2,parameters=?3 WHERE id=?4",
+            params![representation_id,version,parameters,execution_id]).map_err(|_| analytics_error())?;
+        let response = execute_sql_worker(&SqlWorkerRequest { protocol_version: 2, database: project.join("analytics.duckdb"), relations,
+            version: version.clone(), sql: sql.into() }, control, &execution_id, &cancelled, &timed_out, deadline)?;
         check(&cancelled,&timed_out,deadline)?;
         crate::code_outputs::store(&metadata,block_id,&execution_id,"sql",&serde_json::json!({
             "columns":response.columns,"rows":response.rows,"total_rows":null,"has_more":response.has_more
@@ -577,9 +653,9 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
         let completed_at = now();
         metadata.execute("UPDATE executions SET representation_id=?1,completed_at=?2,status='succeeded',result_row_count=?3,duckdb_version=?4 WHERE id=?5",
             params![representation_id,completed_at,response.rows.len() as i64,version,execution_id]).map_err(|_| analytics_error())?;
-        Ok(AnalyticsResult { execution:Execution { id:execution_id.clone(),dataset_id:dataset_id.into(),operation_type:"sql".into(),
+        Ok(AnalyticsResult { execution:Execution { id:execution_id.clone(),dataset_id:datasets[0].id.clone(),operation_type:"sql".into(),
             parameters:parameters.clone(),started_at:started_at.clone(),completed_at:Some(completed_at),status:"succeeded".into(),
-            result_row_count:Some(response.rows.len() as u64),error_summary:None,duckdb_version:Some(version),source_fingerprint:dataset.fingerprint.clone() },
+            result_row_count:Some(response.rows.len() as u64),error_summary:None,duckdb_version:Some(version.clone()),source_fingerprint:datasets[0].fingerprint.clone() },
             columns:response.columns,rows:response.rows,total_rows:None,has_more:response.has_more })
     })().or_else(|failure| {
         if timed_out.load(Ordering::Relaxed) { Err(error("timeout", "The SQL query exceeded the 30-second limit.")) }
@@ -652,10 +728,10 @@ pub(super) fn run_analytics_with_id(project: &Path, dataset_id: &str, request: A
     }
     work
 }
-pub(super) fn dataset_for_python(project: &Path, dataset_id: &str, control: &AnalyticsControl) -> Result<PythonTable> {
+pub(super) fn dataset_for_python(project: &Path, name: &str, control: &AnalyticsControl) -> Result<PythonTable> {
     let metadata = db(project)?;
-    let dataset = list_datasets_inner(&metadata)?.into_iter().find(|item| item.id == dataset_id)
-        .ok_or_else(|| error("dataset_missing", "Choose a registered project dataset."))?;
+    let datasets = list_datasets_inner(&metadata)?;
+    let dataset = resolve_dataset(&datasets, name)?;
     if dataset.status != "ready" || dataset.size_bytes > MAX_SOURCE_BYTES {
         return Err(error("dataset_unavailable", "The selected dataset is changed, missing, or exceeds the analytical limit."));
     }
@@ -676,8 +752,9 @@ pub(super) fn dataset_for_python(project: &Path, dataset_id: &str, control: &Ana
     let request=AnalyticsRequest { kind:"rows".into(),filters:None,sort:Vec::new(),group_by:Vec::new(),aggregations:Vec::new(),limit:Some(200),offset:Some(0) };
     let (output,rows,has_more)=read_result(&conn,&request,&columns,&table,&cancelled,&timed_out,deadline)?;
     check(&cancelled,&timed_out,deadline)?;
-    Ok(PythonTable { kind:"dataset".into(),id:dataset.id,columns:output,rows,has_more,
-        source_fingerprint:dataset.fingerprint,representation_id,duckdb_version })
+    if has_more { return Err(error("input_limit", "This dataset exceeds the 200-row Python transfer limit. Use SQL to filter or aggregate it before transfer; no rows were silently omitted.")); }
+    Ok(PythonTable { kind:"dataset".into(),id:dataset.id.clone(),name:Some(name.into()),columns:output,rows,has_more:false,
+        source_fingerprint:dataset.fingerprint.clone(),representation_id,duckdb_version })
 }
 
 pub(super) fn list_executions_inner(project: &Path) -> Result<Vec<Execution>> {
@@ -1099,6 +1176,7 @@ mod tests {
         crate::notebook::update_block_inner(p,block_id,"SELECT Name FROM source, range(1000)",Some("sql")).unwrap();
         let bounded=run("SELECT Name FROM source, range(1000)").unwrap();
         assert_eq!(bounded.rows.len(),200); assert!(bounded.has_more);
+        assert_eq!(crate::code_outputs::sql_for_python(p,&bounded.execution.id).unwrap_err().code,"input_limit");
         let wide = format!("SELECT {} FROM source",(0..129).map(|n|format!("1 AS c{n}")).collect::<Vec<_>>().join(","));
         crate::notebook::update_block_inner(p,block_id,&wide,Some("sql")).unwrap();
         assert_eq!(run(&wide).unwrap_err().code,"result_limit");
@@ -1140,5 +1218,49 @@ mod tests {
         let failed_representation:Option<String>=metadata.query_row("SELECT representation_id FROM executions WHERE id=?1",[&failed_sql.id],|r|r.get(0)).unwrap();
         assert_eq!(failed_representation,representation_id);
         drop(metadata); fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn named_datasets_join_with_stable_handles_and_complete_python_transfer() {
+        let root=std::env::temp_dir().join(format!("dataforge-named-test-{}",uuid::Uuid::new_v4())); fs::create_dir(&root).unwrap();
+        let project=create_project_inner("Names",root.to_str().unwrap()).unwrap(); let p=Path::new(&project.project.path);
+        let first_dir=root.join("first"); let second_dir=root.join("second"); fs::create_dir(&first_dir).unwrap(); fs::create_dir(&second_dir).unwrap();
+        let left=first_dir.join("shared.csv"); let right=second_dir.join("shared.csv");
+        fs::write(&left,"ID,Amount,Active\n1,1.25,true\n2,2.50,false\n").unwrap();
+        fs::write(&right,"ID,Label\n1,Ada\n2,Bob\n").unwrap();
+        let a=register_csv_inner(p,left.to_str().unwrap()).unwrap(); let b=register_csv_inner(p,right.to_str().unwrap()).unwrap();
+        let names=dataset_names(&list_datasets_inner(&db(p).unwrap()).unwrap());
+        assert_eq!(names[&a.id],vec![dataset_handle(&a.id)]);
+        assert_eq!(resolve_dataset(&list_datasets_inner(&db(p).unwrap()).unwrap(),"shared.csv").unwrap_err().code,"dataset_ambiguous");
+        let control=AnalyticsControl::default();
+        let a_table=dataset_for_python(p,&dataset_handle(&a.id),&control).unwrap();
+        assert_eq!(a_table.id,a.id); assert!(!a_table.has_more);
+        assert_eq!(a_table.columns[1].data_type,"decimal"); assert_eq!(a_table.columns[2].data_type,"boolean");
+        assert_eq!(dataset_for_python(p,"missing.csv",&control).unwrap_err().code,"dataset_missing");
+        let sql=format!("SELECT l.ID, l.Amount, l.Active, r.Label FROM \"{}\" l JOIN \"{}\" r ON l.ID=r.ID ORDER BY l.ID",dataset_handle(&a.id),dataset_handle(&b.id));
+        let note=serde_json::to_value(crate::notebook::create_notebook_inner(p,"Join").unwrap()).unwrap();
+        let block=serde_json::to_value(crate::notebook::add_block_inner(p,note["id"].as_str().unwrap(),"code",&sql,None,None,None,Some("sql")).unwrap()).unwrap();
+        let result=run_notebook_sql_inner(p,"",block["id"].as_str().unwrap(),&sql,&control,uuid::Uuid::new_v4().to_string()).unwrap();
+        assert_eq!(result.rows.len(),2); assert_eq!(result.rows[0][3].as_deref(),Some("Ada"));
+        assert_eq!(result.columns[0].data_type,"integer"); assert_eq!(result.columns[1].data_type,"decimal");
+        assert_eq!(result.columns[2].data_type,"boolean");
+        let provenance:serde_json::Value=serde_json::from_str(&result.execution.parameters).unwrap();
+        assert_eq!(provenance["inputs"].as_array().unwrap().len(),2);
+        let ambiguous="SELECT * FROM \"shared.csv\"";
+        crate::notebook::update_block_inner(p,block["id"].as_str().unwrap(),ambiguous,Some("sql")).unwrap();
+        assert_eq!(run_notebook_sql_inner(p,"",block["id"].as_str().unwrap(),ambiguous,&control,uuid::Uuid::new_v4().to_string()).unwrap_err().code,"dataset_ambiguous");
+        let missing="SELECT * FROM \"missing.csv\"";
+        crate::notebook::update_block_inner(p,block["id"].as_str().unwrap(),missing,Some("sql")).unwrap();
+        assert_eq!(run_notebook_sql_inner(p,"",block["id"].as_str().unwrap(),missing,&control,uuid::Uuid::new_v4().to_string()).unwrap_err().code,"dataset_missing");
+        assert_eq!(fs::read(&left).unwrap(),b"ID,Amount,Active\n1,1.25,true\n2,2.50,false\n");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn python_dataset_transfer_rejects_partial_input() {
+        let root=std::env::temp_dir().join(format!("dataforge-transfer-test-{}",uuid::Uuid::new_v4())); fs::create_dir(&root).unwrap();
+        let project=create_project_inner("Limits",root.to_str().unwrap()).unwrap(); let p=Path::new(&project.project.path);
+        let source=root.join("large.csv"); let mut csv=String::from("Value\n"); for value in 0..201 { csv.push_str(&format!("{value}\n")); }
+        fs::write(&source,csv).unwrap(); register_csv_inner(p,source.to_str().unwrap()).unwrap();
+        assert_eq!(dataset_for_python(p,"large.csv",&AnalyticsControl::default()).unwrap_err().code,"input_limit");
+        fs::remove_dir_all(root).unwrap();
     }
 }

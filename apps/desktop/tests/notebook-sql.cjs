@@ -38,16 +38,33 @@ assert.equal(codeExecutionForBlock([{ ...execution, operation_type: 'rows' }, ex
 assert.equal(codeExecutionForBlock([execution], 'other'), undefined);
 assert.equal(codeExecutionForBlock([{ ...execution, parameters: '{bad' }], 'code'), undefined);
 
-const props = { sqlText: sql, sources: [{ id: 'dataset', name: 'sample.csv', status: 'ready' }], sourceId: 'dataset',
-  onSourceChange() {}, result: { columns: [{ name: 'Name', data_type: 'text' }], rows: [['Ada']], has_more: false },
+const props = { sqlText: sql, sources: [{ id: 'dataset', name: 'sample.csv', status: 'ready' }],
+  result: { columns: [{ name: 'Name', data_type: 'text' }], rows: [['Ada']], has_more: false },
   execution, error: undefined, running: false, disabled: false, canCancel: false, onRun() {}, onCancel() {} };
 const html = renderToStaticMarkup(React.createElement(SqlCodePanel, props));
 assert.match(html, /Run SQL/);
 assert.match(html, /local.*privileges/);
 assert.match(html, /not an OS sandbox/);
 assert.match(html, /Ada/);
+assert.match(html, /complete query output/);
+assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, result: { ...props.result, has_more: true } })), /TRUNCATED at 200 rows/);
 assert.match(html, /100 ms/);
 assert.match(html, /fingerprint/);
+assert.match(html, /&quot;sample\.csv&quot;/);
+assert.doesNotMatch(html, /Choose source/);
+const collisions = renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, sources: [
+  { id: '11111111-1111-1111-1111-111111111111', name: 'shared.csv', status: 'ready' },
+  { id: '22222222-2222-2222-2222-222222222222', name: 'shared.csv', status: 'ready' },
+] }));
+assert.match(collisions, /dataset_11111111111111111111111111111111/);
+assert.match(collisions, /dataset_22222222222222222222222222222222/);
+const multi = renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, execution: { ...execution,
+  parameters: JSON.stringify({ sql, inputs: [
+    { dataset_id: 'first', source_fingerprint: 'hash-a', representation_id: 'rep-a' },
+    { dataset_id: 'second', source_fingerprint: 'hash-b', representation_id: 'rep-b' },
+  ] }),
+} }));
+assert.match(multi, /2 datasets/); assert.match(multi, /hash-a/); assert.match(multi, /hash-b/);
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, sqlText: 'SELECT Value FROM source' })), /Code changed since run/);
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, running: true, canCancel: true })), /Cancel/);
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, result: undefined, error: 'Syntax error' })), /Syntax error/);
@@ -56,13 +73,13 @@ console.log('Notebook SQL output and provenance rendering passed.');
 const pythonHtml = renderToStaticMarkup(React.createElement(PythonCodePanel, {
   environments: [{ path: 'C:/python.exe', version: '3.12' }], selected: 'C:/python.exe', onSelect() {}, onBrowse() {},
   onRun() {}, onInterrupt() {}, onRestart() {}, running: false, disabled: false, code: 'print(1)',
-  sources: [{ id: 'dataset', name: 'sample.csv', status: 'ready' }], datasetId: 'dataset', onDatasetChange() {},
+  sources: [{ id: 'dataset', name: 'sample.csv', status: 'ready' }],
   sqlExecutions: [execution], sqlExecutionId: execution.id, onSqlExecutionChange() {},
   result: { status: 'succeeded', count: 2, duration_ms: 15, python: '3.12', outputs: [{ kind: 'stdout', text: 'hello' }, { kind: 'result', text: '7' }] },
 }));
 assert.match(pythonHtml, /Run Python/);
 assert.match(pythonHtml, /local.*privileges|full file and network privileges/); assert.match(pythonHtml, /hello/); assert.match(pythonHtml, /7/);
-assert.match(pythonHtml, /dataforge\.dataset\(\)/); assert.match(pythonHtml, /dataforge\.sql_result\(\)/);
+assert.match(pythonHtml, /dataforge\.dataset\(&quot;sample\.csv&quot;\)/); assert.doesNotMatch(pythonHtml, /<label>Dataset/);
 assert.match(pythonHtml, /sample\.csv/); assert.match(pythonHtml, /execution/);
 const restoredPython = renderToStaticMarkup(React.createElement(PythonCodePanel, {
   environments: [], selected: '', onSelect() {}, onBrowse() {}, onRun() {}, onInterrupt() {}, onRestart() {},

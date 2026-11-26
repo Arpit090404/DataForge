@@ -3,6 +3,10 @@
 - Status: Proposed for review.
 - Date: 2026-11-23
 
+## Named registered dataset amendment (2026-11-27)
+
+For deliberate local-user Code runs, the Rust host now resolves multiple registered datasets by name or stable dataset-derived handle. SQL uses query-local relations over pinned on-demand representations in the disposable read-only child. The execution records all bound dataset identities, fingerprints, representation IDs, and engine versions; those bindings are conservative context, not proven exact SQL lineage. Case-insensitive duplicate display names require stable handles. The Python bridge requests syntactically named datasets from the host before executing a cell and receives bounded typed values. Python inputs over 200 rows or the byte/combined transfer limits fail rather than silently becoming previews. A truncated saved SQL output is rejected as a complete Python input. This extends the trusted local-user path only; the autonomous-agent and OS-isolation gates remain unchanged. No Data Explorer or Python result publication is implemented by this amendment.
+
 ## Python discovery and editor refinement (2026-11-26)
 
 The Rust host enumerates Python candidates from PATH, the Windows `py -0p` launcher, and the existing optional uv listing. It verifies each candidate can start and import `ipykernel` and `jupyter_client` before the Notebook selects it. A remembered local interpreter is revalidated on startup; the manual override and file picker live in Notebook options. Missing dependencies produce actionable guidance, with no automatic installation. Changing the resolved interpreter still starts a different kernel on the next run and does not restore variables. The existing Code textarea now handles Enter indentation and Tab/Shift+Tab selection edits without changing the Jupyter protocol, execution records, output persistence, or Notebook execution shortcuts.
