@@ -375,6 +375,11 @@ async fn list_named_results(state: State<'_, ActiveProject>) -> Result<Vec<named
     tauri::async_runtime::spawn_blocking(move || named_results::list(&project)).await.map_err(|_| storage_error())?
 }
 #[tauri::command]
+async fn explore_named_results(state: State<'_, ActiveProject>) -> Result<Vec<named_results::ExplorerResult>> {
+    let project=active(&state)?;
+    tauri::async_runtime::spawn_blocking(move || named_results::explore(&project)).await.map_err(|_|storage_error())?
+}
+#[tauri::command]
 async fn release_named_result(id: String, state: State<'_, ActiveProject>) -> Result<()> {
     let project = active(&state)?;
     tauri::async_runtime::spawn_blocking(move || named_results::release(&project, &id)).await.map_err(|_| storage_error())?
@@ -520,7 +525,7 @@ pub fn run() {
         .manage(analytics::AnalyticsControl::default())
         .manage(python_kernel::PythonKernels::default())
         .invoke_handler(tauri::generate_handler![create_project, open_project, register_csv, list_datasets, inspect_csv,
-            run_analytics, run_notebook_sql, list_named_results, release_named_result, python_environments, inspect_python_environment, notebook_python_status, run_notebook_python,
+            run_analytics, run_notebook_sql, list_named_results, explore_named_results, release_named_result, python_environments, inspect_python_environment, notebook_python_status, run_notebook_python,
             interrupt_notebook_python, restart_notebook_python, close_notebook_python,
             list_executions, cancel_execution, active_execution, export_result,
             list_notebooks, get_notebook, get_notebook_code_outputs, clear_notebook_code_outputs, notebook_output_usage, cleanup_notebook_outputs, create_notebook, rename_notebook, delete_notebook,

@@ -8,6 +8,7 @@ import { Input } from './components/ui/input';
 import { ConfirmationDialog, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './components/ui/dialog';
 import { Select } from './components/ui/select';
 import NotebookWorkspace from './Notebook';
+import NotebookDataExplorer from './NotebookDataExplorer';
 import {
   Activity, Archive, ArrowRight, Download,
   CircleAlert, Database, FilePlus2, FileSpreadsheet, FolderOpen,
@@ -119,6 +120,8 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('Chat');
   const [notebookDirty, setNotebookDirty] = useState(false);
   const [projectSession, setProjectSession] = useState(0);
+  const [resultRevision, setResultRevision] = useState(0);
+  const [activeNotebookId, setActiveNotebookId] = useState<string | null>(null);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (notebookDirty) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
@@ -175,6 +178,8 @@ export default function App() {
     requestSerial.current += 1;
     setNotebookDirty(false);
     setProjectSession(value => value + 1);
+    setResultRevision(0);
+    setActiveNotebookId(null);
     setProject(state.project);
     setDatasets(state.datasets);
     setSelectedId(null);
@@ -268,7 +273,7 @@ export default function App() {
   }
 
   const notebookMode = !!project && mode === 'Notebook' && !selected;
-  const inspectorVisible = inspectorOpen && inspectorCanShow && !notebookMode;
+  const inspectorVisible = inspectorOpen && inspectorCanShow;
 
   return <div className={`app-shell${notebookMode ? ' notebook-mode' : ''}${resizingSidebar ? ' resizing-sidebar' : ''}`} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
     <header className="topbar">
@@ -278,9 +283,8 @@ export default function App() {
         <IconButton label="New project" onClick={() => requestProject('new')}><Plus size={16}/></IconButton>
         <IconButton label="Open project" onClick={() => requestProject('open')}><FolderOpen size={16}/></IconButton>
         <span className="top-separator" aria-hidden="true"/>
-        {notebookMode
-          ? <IconButton label={notebookSidebarOpen ? 'Hide project sidebar' : 'Show project sidebar'} aria-pressed={notebookSidebarOpen} onClick={() => setNotebookSidebarOpen(open => !open)}>{notebookSidebarOpen ? <PanelLeftClose size={16}/> : <PanelLeftOpen size={16}/>}</IconButton>
-          : <IconButton label={!inspectorCanShow ? 'Inspector unavailable at this window width' : inspectorVisible ? 'Hide inspector' : 'Show inspector'} aria-pressed={inspectorVisible} disabled={!inspectorCanShow} onClick={() => setInspectorOpen(open => !open)}>{inspectorVisible ? <PanelRightClose size={16}/> : <PanelRightOpen size={16}/>}</IconButton>}
+        {notebookMode && <IconButton label={notebookSidebarOpen ? 'Hide project sidebar' : 'Show project sidebar'} aria-pressed={notebookSidebarOpen} onClick={() => setNotebookSidebarOpen(open => !open)}>{notebookSidebarOpen ? <PanelLeftClose size={16}/> : <PanelLeftOpen size={16}/>}</IconButton>}
+        <IconButton label={!inspectorCanShow ? 'Inspector unavailable at this window width' : inspectorVisible ? 'Hide inspector' : 'Show inspector'} aria-pressed={inspectorVisible} disabled={!inspectorCanShow} onClick={() => setInspectorOpen(open => !open)}>{inspectorVisible ? <PanelRightClose size={16}/> : <PanelRightOpen size={16}/>}</IconButton>
       </div>
     </header>
     <div className={`body-grid ${inspectorVisible ? '' : 'inspector-hidden'}${notebookMode && !notebookSidebarOpen ? ' sidebar-hidden' : ''}`}>
@@ -307,12 +311,13 @@ export default function App() {
           {!project ? <div className="welcome-state"><div className="welcome-icon"><Table2 size={28}/></div><h1>Start with a project.</h1><p>Create a local workspace for your data sources and analysis history. You can add a CSV after the project opens.</p><div className="welcome-actions"><Button variant="primary" onClick={() => requestProject('new')}><Plus size={16}/> Create project</Button><Button variant="secondary" onClick={() => requestProject('open')}><FolderOpen size={16}/> Open project</Button></div></div>
           : selected ? <><DatasetWorkspace dataset={selected} inspection={inspection} busy={busy} onRefresh={() => selectDataset(selected.id)} />{inspection && <AnalyticsPanel key={selected.id} dataset={selected} columns={inspection.columns} onSelectExecution={setInspectedExecution} />}</>
           : mode !== 'Notebook' ? <ModeEmpty mode={mode} onAddSource={registerCsv} hasSources={datasets.length > 0} /> : null}
-          {project && <div className="notebook-surface" hidden={!!selected || mode !== 'Notebook'}><NotebookWorkspace key={projectSession} active={!selected && mode === 'Notebook'} projectId={project.id} projectName={project.name} sources={datasets} onDirtyChange={setNotebookDirty} /></div>}
+          {project && <div className="notebook-surface" hidden={!!selected || mode !== 'Notebook'}><NotebookWorkspace key={projectSession} active={!selected && mode === 'Notebook'} projectId={project.id} projectName={project.name} sources={datasets} onDirtyChange={setNotebookDirty} onResultsChange={() => setResultRevision(value => value + 1)} onNotebookChange={setActiveNotebookId} /></div>}
         </div>
         {!notebookMode && <div className="composer"><div className="composer-box"><div className="composer-heading"><MessageSquare size={14}/> Agent workspace unavailable</div><div className="composer-row"><span>Connect an agent in a later release to investigate with chat.</span><button disabled aria-label="Send unavailable"><ArrowRight size={16}/></button></div></div><div className="composer-note">No data is sent to an AI provider in this version.</div></div>}
       </main>
 
-      {inspectorVisible && <aside className="inspector" aria-label="Context inspector"><div className="inspector-header"><span>INSPECTOR</span></div>{selected ? <DatasetInspector dataset={selected} inspection={inspection} execution={inspectedExecution?.dataset_id === selected.id ? inspectedExecution : null}/> : <div className="inspector-empty"><div className="inspector-empty-icon"><Search size={20}/></div><strong>Nothing selected</strong><p>Select a source to see its details and column profile.</p></div>}</aside>}
+      {inspectorVisible && <aside className="inspector" aria-label={notebookMode ? 'Notebook Data Explorer' : 'Context inspector'}><div className="inspector-header"><span>{notebookMode ? 'DATA EXPLORER' : 'INSPECTOR'}</span></div>{notebookMode && project ? <NotebookDataExplorer key={projectSession} projectId={project.id} notebookId={activeNotebookId} datasets={datasets} revision={resultRevision} onRefreshSources={refreshDatasets} onReleased={() => setResultRevision(value => value + 1)}/>
+        : selected ? <DatasetInspector dataset={selected} inspection={inspection} execution={inspectedExecution?.dataset_id === selected.id ? inspectedExecution : null}/> : <div className="inspector-empty"><div className="inspector-empty-icon"><Search size={20}/></div><strong>Nothing selected</strong><p>Select a source to see its details and column profile.</p></div>}</aside>}
     </div>
     {showCreate && <ProjectDialog onClose={() => setShowCreate(false)} onCreate={createProject} busy={!!busy}/>}
     <ConfirmationDialog open={pendingProject !== null} title="Discard unsaved notebook edits?" description={`Your unsaved notebook edits will be lost if you ${pendingProject === 'new' ? 'create' : 'open'} another project.`} confirmLabel="Discard edits" destructive onCancel={() => setPendingProject(null)} onConfirm={confirmProject}/>
