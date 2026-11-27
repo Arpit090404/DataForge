@@ -57,6 +57,43 @@ assert.match(unavailableMarkup, /disabled/); assert.doesNotMatch(unavailableMark
 const styles = fs.readFileSync(path.resolve(__dirname, '../src/styles.css'), 'utf8');
 assert.match(styles, /\.notebook-mode \.body-grid\.sidebar-hidden\.inspector-hidden\{grid-template-columns:minmax\(0,1fr\)\}/);
 assert.match(styles, /\.explorer-body\{[^}]*overflow-y:auto/);
+
+// React may run a functional state update after the toggle event has finished.
+// At that point its synthetic currentTarget has been cleared to null.
+const explorerPath = path.resolve(__dirname, '../src/NotebookDataExplorer.tsx');
+const interactiveCode = esbuild.buildSync({ entryPoints: [explorerPath], bundle: true, platform: 'node', format: 'cjs', write: false,
+  external: ['react', 'react/jsx-runtime', '@tauri-apps/api/core', './components/ui/*'] }).outputFiles[0].text;
+const pendingUpdates = [];
+const fakeReact = { useEffect() {}, useState(initial) {
+  let value = typeof initial === 'function' ? initial() : initial;
+  return [value, update => pendingUpdates.push(() => { value = typeof update === 'function' ? update(value) : update; })];
+} };
+const fakeJsx = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
+const interactiveModule = new Module(explorerPath, module);
+interactiveModule.filename = explorerPath;
+interactiveModule.paths = Module._nodeModulePaths(path.dirname(explorerPath));
+interactiveModule.require = function(request) {
+  if (request === 'react') return fakeReact;
+  if (request === 'react/jsx-runtime') return fakeJsx;
+  if (request.startsWith('./components/ui/')) return { Badge() {}, Button() {}, ConfirmationDialog() {}, Input() {} };
+  return Module.prototype.require.call(this, request);
+};
+interactiveModule._compile(interactiveCode, explorerPath);
+const tree = interactiveModule.exports.default({ projectId: 'project', notebookId: null, datasets: [dataset], revision: 0, onRefreshSources: async () => {}, onReleased() {} });
+function sections(node) {
+  if (Array.isArray(node)) return node.flatMap(sections);
+  if (!node || typeof node !== 'object') return [];
+  return [node, ...sections(node.props?.children)];
+}
+const disclosureSections = sections(tree).filter(node => node.type === 'details' && node.props.className === 'explorer-section');
+assert.equal(disclosureSections.length, 3);
+for (const section of disclosureSections) {
+  const event = { currentTarget: { open: false } };
+  section.props.onToggle(event);
+  event.currentTarget = null;
+}
+assert.doesNotThrow(() => pendingUpdates.forEach(update => update()), 'Section state updates must not read an expired event.currentTarget');
+
 if (process.env.DATAFORGE_EXPLORER_HTML) {
   const asset = fs.readdirSync(path.resolve(__dirname, '../dist/assets')).find(name => name.endsWith('.css'));
   const css = fs.readFileSync(path.resolve(__dirname, '../dist/assets', asset), 'utf8');
