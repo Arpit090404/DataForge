@@ -2,6 +2,10 @@
 
 **Status:** Requirements baseline. Typed analytics and explicit trusted-user Notebook SQL/Python are implemented; autonomous code and OS-confined execution remain unavailable.
 
+## Named result handoff (2026-11-27)
+
+Named results are host-owned project records backed by validated content-addressed blobs. A SQL query child receives only explicitly referenced complete table rows and query-local view names; it cannot publish directly to project storage. The trusted Python bridge may stage a bounded DataFrame, but the Rust host commits it only after a successful matching execution. Names and result IDs are resolved within the active project. A release tombstones the record and removes its blob reference; cleanup does not remove bytes still referenced by a saved Code output or another result. A preview with `has_more=true` cannot be published or transferred as complete input. These controls preserve the existing trusted local-user boundary; the Python kernel retains normal account privileges and the SQL child is not an OS sandbox.
+
 ## Named dataset handoff (2026-11-27)
 
 The Rust host resolves project dataset names and stable IDs, checks ready status and source limits, and pins existing on-demand DuckDB representations before trusted local-user SQL or Python execution. SQL query children create temporary named views on a read-only DuckDB connection; the host records all exposed input identities and versions. The Python bridge requests only literal dataset names found during source preflight. The host returns bounded typed rows with provenance and rejects a dataset over 200 rows, a table over 1 MiB, or combined inputs over 3 MiB. It also rejects a truncated saved SQL result as a complete Python input. No dataset path, project database connection, or project write handle is passed through this API. The trusted Python kernel still has the user's normal OS privileges independently of the handoff; SQL's query-local views and name matching are not an authorization parser or an OS sandbox. Dynamic Python name expressions are unavailable in this phase.

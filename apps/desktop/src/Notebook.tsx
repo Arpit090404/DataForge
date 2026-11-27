@@ -36,6 +36,7 @@ type PythonOutput = { kind: string; text: string; mime?: string; data?: string; 
 type PythonResult = { execution_id: string; status: string; count: number | null; outputs: PythonOutput[]; duration_ms: number; python: string; restored?: boolean; recorded_code?: string };
 type SavedCodeOutput = { block_id: string; execution_id: string; kind: 'sql' | 'python'; code: string; status: string; value: unknown };
 type OutputUsage = { total_bytes: number; reclaimable_bytes: number; reclaimable_blobs: number };
+type NamedResult = { id: string; name: string | null; execution_id: string; created_at: string; available: boolean; stale: boolean };
 const numericColumnType = /^(?:integer|decimal)$/;
 
 export function codeExecutionForBlock(executions: Execution[], blockId: string): Execution | undefined {
@@ -51,23 +52,26 @@ function datasetAccessName(source: Source, sources: Source[]): string {
     ? `dataset_${source.id.replaceAll('-', '')}` : source.name;
 }
 
-export function SqlCodePanel({ sqlText, sources, result, execution, error, running, disabled, canCancel, onRun, onCancel }: {
+export function SqlCodePanel({ sqlText, sources, result, execution, error, running, disabled, canCancel, resultName, onResultNameChange, onRun, onCancel }: {
   sqlText: string; sources: Source[];
   result?: Result; execution?: Execution; error?: string; running: boolean; disabled: boolean; canCancel: boolean;
+  resultName?: string; onResultNameChange?: (name: string) => void;
   onRun: () => void; onCancel: () => void;
 }) {
   const ready = sources.filter(source => source.status === 'ready');
-  const recorded = (() => { try { return JSON.parse(execution?.parameters ?? '{}') as { sql?: string; inputs?: { dataset_id: string; source_fingerprint: string; representation_id?: string }[] }; } catch { return {}; } })();
+  const recorded = (() => { try { return JSON.parse(execution?.parameters ?? '{}') as { sql?: string; result_name?: string; inputs?: { dataset_id: string; source_fingerprint: string; representation_id?: string }[]; result_inputs?: { result_id: string; execution_id: string }[] }; } catch { return {}; } })();
   const recordedSql = recorded.sql;
   const boundInputs = Array.isArray(recorded.inputs) ? recorded.inputs : [];
   const duration = execution?.completed_at ? Date.parse(execution.completed_at) - Date.parse(execution.started_at) : NaN;
   return <div className="notebook-sql-panel">
-    <div className="notebook-sql-controls"><Button type="button" variant="secondary" size="small" loading={running} disabled={disabled || !ready.length || !sqlText.trim()} onClick={onRun}>{running ? 'RunningÃ¢â‚¬Â¦' : 'Run SQL'}</Button>{running && <Button type="button" variant="ghost" size="small" disabled={!canCancel} onClick={onCancel}>Cancel</Button>}</div>
-    <p className="notebook-sql-disclosure">Runs locally with your account's privileges. DuckDB read-only settings are not an OS sandbox. Query registered datasets by quoted name. Output shows at most 200 rows and labels additional rows.</p>
+    <div className="notebook-sql-controls"><label>Result name <Input value={resultName ?? ''} placeholder="Auto: stable cell name" disabled={running || disabled} onChange={event => onResultNameChange?.(event.target.value)}/></label></div>
+    <div className="notebook-sql-controls"><Button type="button" variant="secondary" size="small" loading={running} disabled={disabled || !sqlText.trim()} onClick={onRun}>{running ? 'RunningÃ¢â‚¬Â¦' : 'Run SQL'}</Button>{running && <Button type="button" variant="ghost" size="small" disabled={!canCancel} onClick={onCancel}>Cancel</Button>}</div>
+    <p className="notebook-sql-disclosure">Runs locally with your account's privileges. DuckDB read-only settings are not an OS sandbox. Query registered datasets and published results by name. Complete outputs up to 200 rows are published; larger outputs remain previews.</p>
     <details className="notebook-muted"><summary>Available datasets ({ready.length})</summary>{ready.map(source => <div key={source.id}>{source.name}: <code>{`"${datasetAccessName(source, sources).replaceAll('"', '""')}"`}</code></div>)}</details>
     {running && <p role="status">Running SQLÃ¢â‚¬Â¦</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {execution && <p className="notebook-muted">Latest run: {execution.status} Ã‚Â· {Number.isFinite(duration) && duration >= 0 ? `${duration} ms` : 'duration unavailable'} Ã‚Â· {boundInputs.length > 1 ? boundInputs.length + ' datasets' : sources.find(source => source.id === execution.dataset_id)?.name ?? 'Source unavailable'}{recordedSql !== sqlText ? ' Ã‚Â· Code changed since run' : ''}</p>}
+    {result && !result.has_more && recorded.result_name && <p className="notebook-muted">Published as <code>{recorded.result_name}</code>.</p>}
     {result && <><div className="table-scroll"><Table><TableHeader><TableRow>{result.columns.map((column, index) => <TableHead key={index} className={numericColumnType.test(column.data_type) ? 'notebook-number' : undefined}>{column.name}</TableHead>)}</TableRow></TableHeader><TableBody>{result.rows.map((row, index) => <TableRow key={index}>{row.map((value, column) => <TableCell key={column} className={numericColumnType.test(result.columns[column]?.data_type ?? '') ? 'notebook-number' : undefined}>{value ?? <span className="null-value">null</span>}</TableCell>)}</TableRow>)}</TableBody></Table>{!result.rows.length && <TableEmpty>No rows returned.</TableEmpty>}</div><p className="notebook-muted">{result.rows.length} rows shown{result.has_more ? ' | TRUNCATED at 200 rows; not a complete result' : ' | complete query output'}. {result.restored ? 'Stored output from an earlier execution; no query was run.' : 'Output saved with this execution.'}</p></>}
     {execution && <details><summary>SQL execution details</summary><small>Execution ID: {execution.id}<br/>DuckDB: {execution.duckdb_version ?? 'Unavailable'}</small>{boundInputs.length ? boundInputs.map(input => <div key={input.dataset_id}><small>Dataset ID: {input.dataset_id}<br/>Source fingerprint: {input.source_fingerprint}<br/>Representation ID: {input.representation_id ?? 'Unavailable'}</small></div>) : <small><br/>Source fingerprint: {execution.source_fingerprint}</small>}<pre>{recordedSql}</pre></details>}
   </div>;
@@ -82,7 +86,7 @@ export function PythonCodePanel({ selected, onRun, onInterrupt, result, error, r
 }) {
   return <div className="notebook-sql-panel notebook-python-panel">
     <div className="notebook-sql-controls"><label>SQL result <Select value={sqlExecutionId ?? ''} disabled={running || disabled} onChange={event => onSqlExecutionChange?.(event.target.value)}><option value="">None</option>{sqlExecutions?.filter(run => run.status === 'succeeded').map(run => <option key={run.id} value={run.id}>{run.id.slice(0, 8)} · {run.dataset_id}</option>)}</Select></label></div>
-    <p className="notebook-muted">Use literal <code>dataforge.dataset("name")</code> calls. Full inputs over 200 rows or 3 MiB fail explicitly; filter or aggregate with SQL first. DataFrames carry provenance in <code>df.attrs["dataforge"]</code>.</p>
+    <p className="notebook-muted">Use literal <code>dataforge.dataset("name")</code> or <code>dataforge.result("name")</code> calls. Publish a complete DataFrame with <code>dataforge.publish("name", frame)</code>. Inputs over 200 rows or 3 MiB fail explicitly. DataFrames carry provenance in <code>df.attrs["dataforge"]</code>.</p>
     <details className="notebook-muted"><summary>Available datasets ({sources?.filter(source => source.status === 'ready').length ?? 0})</summary>{sources?.filter(source => source.status === 'ready').map(source => <div key={source.id}>{source.name}: <code>{`dataforge.dataset(${JSON.stringify(datasetAccessName(source, sources ?? []))})`}</code></div>)}</details>
     <div className="notebook-sql-controls"><Button type="button" variant="secondary" size="small" loading={running} disabled={disabled || !selected || !code.trim()} onClick={onRun}>Run Python</Button>{running && <Button type="button" variant="ghost" size="small" onClick={onInterrupt}>Interrupt</Button>}</div>
     <p className="notebook-sql-disclosure">Trusted Python runs locally with your account's full file and network privileges. Variables persist within this notebook's kernel until restart. Tables, PNG/JPEG images, and plain text are shown; executable HTML is never rendered.</p>
@@ -203,6 +207,9 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
   const [analysisResult, setAnalysisResult] = useState<Result | null>(null);
   const [sqlExecutions, setSqlExecutions] = useState<Execution[]>([]);
   const [sqlResults, setSqlResults] = useState<Record<string, Result>>({});
+  const [sqlResultNames, setSqlResultNames] = useState<Record<string, string>>({});
+  const [namedResults, setNamedResults] = useState<NamedResult[]>([]);
+  const [pendingResultRelease, setPendingResultRelease] = useState<NamedResult | null>(null);
   const [sqlErrors, setSqlErrors] = useState<Record<string, string>>({});
   const [sqlRunId, setSqlRunId] = useState<string | null>(null);
   const [sqlRunningBlock, setSqlRunningBlock] = useState<string | null>(null);
@@ -292,6 +299,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
     let current = true;
     void loadList(listStatus === 'ready' ? 'refresh' : listStatus === 'error' ? 'retry' : 'initial');
     invoke<Execution[]>('list_executions').then(runs => { if (current) { setExecutions(runs.filter(run => run.status === 'succeeded' && run.operation_type !== 'sql' && run.operation_type !== 'python')); setSqlExecutions(runs.filter(run => run.operation_type === 'sql')); } }).catch(e => { if (current) setError(message(e)); });
+    invoke<NamedResult[]>('list_named_results').then(items => { if (current) setNamedResults(items); }).catch(e => { if (current) setError(message(e)); });
     void (async () => {
       const remembered = localStorage.getItem(pythonPreferenceKey);
       let saved: PythonEnvironment | null = null;
@@ -412,7 +420,6 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
   }
   async function runSql(block: Block): Promise<'completed' | 'failed' | 'cancelled'> {
     if (pendingSql.current || !notebook) return 'failed';
-    if (!sources.some(source => source.status === 'ready')) { setSqlErrors(current => ({ ...current, [block.id]: 'Register a ready dataset before running SQL.' })); return 'failed'; }
     const sql = drafts[block.id] ?? block.content;
     const id = crypto.randomUUID();
     pendingSql.current = id; setSqlRunId(id); setSqlRunningBlock(block.id); setSqlCanCancel(false);
@@ -421,9 +428,11 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
     try {
       await saveCell(block.id);
       if (stopRunAllRequested.current) return 'cancelled';
-      const result = await invoke<Result>('run_notebook_sql', { datasetId: '', blockId: block.id, sql, executionId: id });
+      const result = await invoke<Result>('run_notebook_sql', { datasetId: '', blockId: block.id, sql, executionId: id, resultName: sqlResultNames[block.id]?.trim() || null });
       setSqlResults(current => ({ ...current, [block.id]: result }));
+      try { setSqlResultNames(current => ({ ...current, [block.id]: JSON.parse(result.execution.parameters).result_name ?? '' })); } catch { /* Execution still succeeded. */ }
       setSqlExecutions(current => [result.execution, ...current.filter(item => item.id !== id)]);
+      setNamedResults(await invoke<NamedResult[]>('list_named_results'));
       return 'completed';
     } catch (failure) {
       setSqlErrors(current => ({ ...current, [block.id]: hasErrorCode(failure, 'cancelled') ? 'Query cancelled.' : message(failure) }));
@@ -460,6 +469,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
       const result = await invoke<PythonResult>('run_notebook_python', { notebookId: notebook.id, blockId: block.id, code, python: readyPythonPath, executionId: id,
         datasetId: null, sqlExecutionId: pythonSqlInputs[block.id] || null });
       setPythonResults(current => ({ ...current, [block.id]: { ...result, recorded_code: code } }));
+      if (result.status === 'succeeded') setNamedResults(await invoke<NamedResult[]>('list_named_results'));
       return result.status === 'succeeded' ? 'completed' : result.status === 'interrupted' ? 'cancelled' : 'failed';
     } catch (failure) { setPythonErrors(current => ({ ...current, [block.id]: message(failure) })); return 'failed'; }
     finally { pythonInvokeStarted.current = false; pendingPython.current = false; setPythonRunningBlock(null); }
@@ -516,7 +526,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
       invoke<Execution[]>('list_executions'),
     ]);
     const sql: Record<string, Result> = {}, sqlErrors: Record<string, string> = {}, python: Record<string, PythonResult> = {};
-    const pythonSqlIds: Record<string, string> = {};
+    const pythonSqlIds: Record<string, string> = {}, restoredNames: Record<string, string> = {};
     for (const item of saved) {
       const block = next.blocks.find(cell => cell.id === item.block_id && cell.language === item.kind);
       if (!block) continue;
@@ -530,11 +540,13 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
       } else {
         const execution = runs.find(run => run.id === item.execution_id);
         if (!execution) continue;
+        try { restoredNames[item.block_id] = JSON.parse(execution.parameters).result_name ?? ''; } catch { /* Saved output remains readable. */ }
         const value = item.value as Partial<Result> & { error?: string };
         if (value.error) sqlErrors[item.block_id] = value.error;
         else if (Array.isArray(value.columns) && Array.isArray(value.rows)) sql[item.block_id] = { execution, columns: value.columns, rows: value.rows, total_rows: value.total_rows ?? null, has_more: !!value.has_more, restored: true };
       }
     }
+    setSqlResultNames(restoredNames);
     setNotebook(next); setTitle(next.title); setSelectedId(next.blocks[0]?.id ?? null); setEditingId(null);
     setTargetResultId(null); setAnalysisResult(null); setAnalysisSourceId(''); setConfiguration(defaultConfiguration());
     setAnalysisNotice(''); setAnalysisError(''); setSqlExecutions(runs.filter(run => run.operation_type === 'sql'));
@@ -721,6 +733,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
                   <section><h3>Editing</h3><dl><div><dt>Esc</dt><dd>Return to command mode</dd></div><div><dt>Tab</dt><dd>Indent Code</dd></div></dl></section>
                   <section><h3>Saving</h3><dl><div><dt>Ctrl+Enter</dt><dd>Save cell</dd></div><div><dt>Shift+Enter</dt><dd>Run Code or save Text, select next</dd></div><div><dt>Ctrl+S</dt><dd>Save notebook</dd></div></dl></section>
                   <p>SQL and trusted Python Code cells run locally. Python needs an existing ipykernel environment.</p>
+                  <section><h3>Named results</h3><p>Complete tables are available to SQL by name or stable handle, and to Python through <code>dataforge.result("name")</code>. Publish a DataFrame with <code>dataforge.publish("name", frame)</code>. Outputs over 200 rows are previews and cannot be published.</p>{namedResults.filter(item => item.available).map(item => <div key={item.id}><code>{item.name ?? 'Historical result'}</code> <small><code>{`result_${item.id.replaceAll('-', '')}`}</code></small>{item.stale ? ' · historical or source changed' : ''} <Button variant="ghost" size="small" disabled={busy} onClick={() => setPendingResultRelease(item)}>Release</Button></div>)}</section>
                   <section><h3>Saved output storage</h3><p>{outputUsage ? `${(outputUsage.total_bytes / 1024).toFixed(1)} KiB saved · ${(outputUsage.reclaimable_bytes / 1024).toFixed(1)} KiB reclaimable` : 'Loading usage…'}</p><p>Clearing output keeps execution history. Cleanup permanently removes unused snapshots and images.</p><div><Button variant="ghost" size="small" disabled={busy || !!analysisRunId || !notebook.blocks.some(cell => cell.kind === 'code')} onClick={() => setPendingOutputAction('clear-all')}>Clear All Outputs</Button><Button variant="ghost" size="small" disabled={busy || !!analysisRunId || !outputUsage?.reclaimable_blobs} onClick={() => setPendingOutputAction('cleanup')}>Clean up storage</Button></div></section>
                   <section><h3>Python environment</h3><p>Compatible Python is selected automatically. Override it with an existing ipykernel environment.</p><Select aria-label="Python environment override" value={pythonPath} disabled={busy || !!analysisRunId} onChange={event => { setPythonPath(event.target.value); if (event.target.value) localStorage.setItem(pythonPreferenceKey, event.target.value); else localStorage.removeItem(pythonPreferenceKey); }}><option value="">No compatible Python</option>{pythonPath && !readyPythonPath && <option value={pythonPath}>Unavailable: {pythonPath}</option>}{pythonEnvironments.map(env => <option key={env.path} value={env.path}>{env.version} · {env.path}</option>)}</Select><Button variant="ghost" size="small" disabled={busy || !!analysisRunId} onClick={() => void browsePython()}>Choose executable</Button></section>
                 </div>
@@ -735,7 +748,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
         const savedStatus = language === 'python' ? pythonResults[block.id]?.status : sqlResults[block.id] || sqlErrors[block.id] ? codeExecutionForBlock(sqlExecutions, block.id)?.status : undefined;
         const runState = cellRuns[block.id] ?? (savedStatus === 'succeeded' ? 'completed' : savedStatus === 'interrupted' || savedStatus === 'cancelled' ? 'cancelled' : savedStatus ? 'failed' : undefined);
         const label = block.kind === 'markdown' ? 'Text' : block.kind === 'code' ? 'Code' : 'Result';
-          const sqlPanel = <SqlCodePanel sqlText={draft} sources={sources} result={sqlResults[block.id]} execution={codeExecutionForBlock(sqlExecutions, block.id)} error={sqlErrors[block.id]} running={sqlRunningBlock === block.id} disabled={busy || !!analysisRunId} canCancel={sqlCanCancel} onRun={() => void executeCells([block])} onCancel={() => void cancelSql()}/>;
+          const sqlPanel = <SqlCodePanel sqlText={draft} sources={sources} result={sqlResults[block.id]} execution={codeExecutionForBlock(sqlExecutions, block.id)} error={sqlErrors[block.id]} running={sqlRunningBlock === block.id} disabled={busy || !!analysisRunId} canCancel={sqlCanCancel} resultName={sqlResultNames[block.id]} onResultNameChange={name => setSqlResultNames(current => ({ ...current, [block.id]: name }))} onRun={() => void executeCells([block])} onCancel={() => void cancelSql()}/>;
           const pythonPanel = <PythonCodePanel selected={readyPythonPath} onRun={() => void executeCells([block])} onInterrupt={() => void interruptPython()} result={pythonResults[block.id]} error={pythonErrors[block.id]} running={pythonRunningBlock === block.id} disabled={busy || !!analysisRunId} code={draft} sources={sources} sqlExecutions={sqlExecutions} sqlExecutionId={pythonSqlInputs[block.id]} onSqlExecutionChange={id => setPythonSqlInputs(current => ({ ...current, [block.id]: id }))}/>;
         return <Fragment key={block.id}><InsertionSlot disabled={busy} location={`before cell ${index + 1}`} insert={kind => void action(() => insert(kind, block.id, 'before'))}/><section ref={element => { cellRefs.current[block.id] = element; }} tabIndex={selected ? 0 : -1} aria-label={`${label} cell ${index + 1}`} className={`notebook-block${block.kind === 'code' ? ' notebook-block--code' : ''}${selected ? ' selected' : ''}${editing ? ' editing' : ''}`} onClick={event => onCellClick(event, block.id)}>
           <div className={`notebook-block-toolbar${changed || deleteArmed === block.id ? ' has-state' : ''}`}>{(changed || deleteArmed === block.id) && <span className="notebook-cell-state">{changed && <em>Unsaved</em>}{deleteArmed === block.id && <em>Press D again to delete</em>}</span>}{block.kind === 'code' && <Select aria-label={`Language for code cell ${index + 1}`} value={language ?? 'python'} disabled={busy} onChange={event => { const value = event.target.value as 'python' | 'sql'; setLanguages(current => { const next = { ...current }; if (value === block.language) delete next[block.id]; else next[block.id] = value; return next; }); }}><option value="python">Python</option><option value="sql">SQL</option></Select>}
@@ -765,6 +778,7 @@ export default function NotebookWorkspace({ active, onDirtyChange, projectId, pr
       {!!executions.length && <div className="notebook-add"><label htmlFor="execution-select">Saved execution</label><Select id="execution-select" value={executionId} onChange={e => setExecutionId(e.target.value)}><option value="">Choose an execution</option>{executions.map(item => <option key={item.id} value={item.id}>{notebookExecutionLabel(item, sources)}</option>)}</Select><Button disabled={busy || !succeeded} onClick={() => void action(async () => { const block = await invoke<Block>('add_block', { notebookId: notebook.id, kind: 'result', content: '', executionId }); await reload(); setSelectedId(block.id); focusCell(block.id); })}>Add result</Button>{succeeded && <details className="notebook-execution-choice-details"><summary>Selected execution details</summary><small>Execution ID: {succeeded.id}<br/>Dataset ID: {succeeded.dataset_id}<br/>Source fingerprint: {succeeded.source_fingerprint}<br/>Recorded status: {succeeded.status}</small><div>Original parameters</div><pre>{succeeded.parameters}</pre></details>}</div>}
     </>}
     <ConfirmationDialog open={pendingOutputAction !== null} title={pendingOutputAction === 'cleanup' ? 'Permanently clean up saved outputs?' : 'Clear all Code outputs?'} description={pendingOutputAction === 'cleanup' ? `Permanently remove ${outputUsage?.reclaimable_blobs ?? 0} unused blobs (${((outputUsage?.reclaimable_bytes ?? 0) / 1024).toFixed(1)} KiB) from this project? Execution records remain.` : 'Hide all saved Code outputs in this notebook? Execution records remain. Unused storage can be reclaimed separately.'} confirmLabel={pendingOutputAction === 'cleanup' ? 'Clean up' : 'Clear outputs'} destructive onCancel={() => setPendingOutputAction(null)} onConfirm={() => { const selected=pendingOutputAction; setPendingOutputAction(null); if (selected) void action(() => selected === 'cleanup' ? cleanupOutputs() : clearOutputs()); }}/>
+    <ConfirmationDialog open={pendingResultRelease !== null} title="Release named result?" description={`Release ${pendingResultRelease?.name ?? pendingResultRelease?.id ?? ''}? Its stable handle will stop resolving. Saved execution output remains until cleared, and unused storage can then be cleaned up.`} confirmLabel="Release" destructive onCancel={() => setPendingResultRelease(null)} onConfirm={() => { const selected=pendingResultRelease; setPendingResultRelease(null); if (selected) void action(async () => { await invoke('release_named_result', { id: selected.id }); setNamedResults(await invoke<NamedResult[]>('list_named_results')); await refreshOutputUsage(); }); }}/>
     <ConfirmationDialog open={pendingDelete !== null} title={pendingDelete?.kind === 'notebook' ? 'Delete notebook?' : 'Delete cell?'} description={pendingDelete?.kind === 'notebook' ? `Delete Ã¢â‚¬Å“${pendingDelete.title}Ã¢â‚¬Â and all its cells? This cannot be undone.` : 'Delete this cell? This cannot be undone.'} confirmLabel="Delete" destructive onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete}/>
   </div>;
 }

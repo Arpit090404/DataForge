@@ -47,6 +47,13 @@ assert.match(html, /local.*privileges/);
 assert.match(html, /not an OS sandbox/);
 assert.match(html, /Ada/);
 assert.match(html, /complete query output/);
+const published = renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, resultName: 'totals', execution: { ...execution,
+  parameters: JSON.stringify({ sql, result_name: 'totals' }),
+} }));
+assert.match(published, /Result name/); assert.match(published, /value="totals"/); assert.match(published, /Published as/);
+assert.doesNotMatch(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, result: { ...props.result, has_more: true }, execution: { ...execution,
+  parameters: JSON.stringify({ sql, result_name: 'totals' }),
+} })), /Published as/);
 assert.match(renderToStaticMarkup(React.createElement(SqlCodePanel, { ...props, result: { ...props.result, has_more: true } })), /TRUNCATED at 200 rows/);
 assert.match(html, /100 ms/);
 assert.match(html, /fingerprint/);
@@ -80,6 +87,7 @@ const pythonHtml = renderToStaticMarkup(React.createElement(PythonCodePanel, {
 assert.match(pythonHtml, /Run Python/);
 assert.match(pythonHtml, /local.*privileges|full file and network privileges/); assert.match(pythonHtml, /hello/); assert.match(pythonHtml, /7/);
 assert.match(pythonHtml, /dataforge\.dataset\(&quot;sample\.csv&quot;\)/); assert.doesNotMatch(pythonHtml, /<label>Dataset/);
+assert.match(pythonHtml, /dataforge\.result/); assert.match(pythonHtml, /dataforge\.publish/);
 assert.match(pythonHtml, /sample\.csv/); assert.match(pythonHtml, /execution/);
 const restoredPython = renderToStaticMarkup(React.createElement(PythonCodePanel, {
   environments: [], selected: '', onSelect() {}, onBrowse() {}, onRun() {}, onInterrupt() {}, onRestart() {},
