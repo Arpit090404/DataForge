@@ -18,6 +18,17 @@ pub(super) struct NamedResult {
     pub(super) stale: bool,
 }
 
+#[derive(Serialize)]
+pub(super) struct ExplorerResult {
+    #[serde(flatten)]
+    pub(super) result: NamedResult,
+    pub(super) columns: Vec<ResultColumn>,
+    pub(super) row_count: Option<usize>,
+    pub(super) operation_type: String,
+    pub(super) notebook_id: Option<String>,
+    pub(super) provenance: serde_json::Value,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct Table {
     pub(super) columns: Vec<ResultColumn>,
@@ -109,6 +120,27 @@ pub(super) fn list(project: &Path) -> Result<Vec<NamedResult>> {
     })
         .map_err(|_|storage_error())?.collect::<std::result::Result<Vec<_>,_>>().map_err(|_|storage_error())?;
     Ok(results)
+}
+
+pub(super) fn explore(project: &Path) -> Result<Vec<ExplorerResult>> {
+    let conn=db(project)?;
+    list(project)?.into_iter().map(|mut result| {
+        let (operation_type, parameters):(String,String)=conn.query_row(
+            "SELECT operation_type,parameters FROM executions WHERE id=?1 AND project_id=(SELECT id FROM project LIMIT 1)",
+            [&result.execution_id],|row|Ok((row.get(0)?,row.get(1)?))).map_err(|_|storage_error())?;
+        let table=if result.available {
+            let handle=format!("result_{}",result.id.replace('-',""));
+            match resolve(&conn,&handle) { Ok((_,table))=>Some(table), Err(_)=>{result.available=false;None} }
+        } else { None };
+        let provenance:serde_json::Value=serde_json::from_str(&parameters).unwrap_or(serde_json::Value::Null);
+        let notebook_id=if let Some(id)=provenance["notebook_id"].as_str() { Some(id.to_string()) }
+            else if let Some(block_id)=provenance["code_block_id"].as_str() {
+                conn.query_row("SELECT notebook_id FROM notebook_blocks WHERE id=?1",[block_id],|row|row.get(0))
+                    .optional().map_err(|_|storage_error())?
+            } else { None };
+        Ok(ExplorerResult{result,columns:table.as_ref().map_or_else(Vec::new,|table|table.columns.clone()),
+            row_count:table.as_ref().map(|table|table.rows.len()),operation_type,notebook_id,provenance})
+    }).collect()
 }
 
 pub(super) fn resolve(conn: &Connection, name: &str) -> Result<(NamedResult, Table)> {

@@ -315,6 +315,9 @@ mod tests {
         let first=crate::analytics::run_notebook_sql_named_inner(path,"",sql_block_id,sql,Some("base_values"),&control,uuid::Uuid::new_v4().to_string()).unwrap();
         assert!(!first.has_more);
         let first_result=crate::named_results::list(path).unwrap().into_iter().find(|r|r.name.as_deref()==Some("base_values")).unwrap();
+        let explored=crate::named_results::explore(path).unwrap();
+        assert_eq!(explored.iter().find(|item|item.result.id==first_result.id).unwrap().row_count,Some(2));
+        assert_eq!(explored.iter().find(|item|item.result.id==first_result.id).unwrap().columns[1].data_type,"integer");
         let stable=format!("result_{}",first_result.id.replace('-',""));
         let code="a=dataforge.result('base_values'); dataforge.publish('doubled', a.assign(Double=a['Amount']*2)); print(a['Amount'].dtype, a.attrs['dataforge']['extent'])";
         let py_block=serde_json::to_value(crate::notebook::add_block_inner(path,note_id,"code",code,None,None,None,Some("python")).unwrap()).unwrap();
@@ -351,6 +354,7 @@ mod tests {
         assert!(crate::named_results::list(path).unwrap().iter().any(|item|item.name.as_deref()==Some("base_values") && item.stale));
         crate::named_results::release(path,&first_result.id).unwrap();
         assert_eq!(crate::named_results::resolve(&db(path).unwrap(),&stable).unwrap_err().code,"result_unavailable");
+        assert!(!crate::named_results::explore(path).unwrap().iter().find(|item|item.result.id==first_result.id).unwrap().result.available);
         let doubled=crate::named_results::list(path).unwrap().into_iter().find(|item|item.name.as_deref()==Some("doubled")).unwrap();
         let hash:String=db(path).unwrap().query_row("SELECT payload_hash FROM named_results WHERE id=?1",[&doubled.id],|r|r.get(0)).unwrap();
         crate::code_outputs::clear(path,note_id,Some(py_block_id)).unwrap();
