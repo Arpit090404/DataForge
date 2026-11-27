@@ -127,6 +127,7 @@ from decimal import Decimal as _df_Decimal
 class _DataForgeInputs:
     def __init__(self, payload):
         self._inputs = _df_json.loads(payload)
+        self._publications = {}
     def _frame(self, kind, selected_id=None):
         import pandas as _df_pd
         matches = [item for item in self._inputs if item["kind"] == kind and
@@ -159,6 +160,52 @@ class _DataForgeInputs:
         return self._frame("dataset", dataset_id)
     def sql_result(self, execution_id=None):
         return self._frame("sql_result", execution_id)
+    def result(self, name):
+        return self._frame("named_result", name)
+    def publish(self, name, frame):
+        import pandas as _df_pd
+        if not isinstance(name, str) or not isinstance(frame, _df_pd.DataFrame):
+            raise ValueError("Publish requires a result name and Pandas DataFrame")
+        if name in self._publications:
+            raise ValueError("Publish each result name once per cell")
+        if len(frame) > 200 or len(frame.columns) == 0 or len(frame.columns) > 128:
+            raise ValueError("Published results require 1-128 columns and at most 200 complete rows")
+        names = list(frame.columns)
+        if any(not isinstance(n, str) or not n or len(n) > 255 for n in names) or len({n.lower() for n in names}) != len(names):
+            raise ValueError("Published results require unique nonempty text column names")
+        columns = []
+        for name_column in names:
+            series = frame[name_column]
+            dtype = series.dtype
+            if _df_pd.api.types.is_bool_dtype(dtype):
+                kind = "boolean"
+            elif _df_pd.api.types.is_integer_dtype(dtype):
+                kind = "integer"
+            elif _df_pd.api.types.is_float_dtype(dtype) or series.dropna().map(lambda v: isinstance(v, _df_Decimal)).all() and len(series.dropna()):
+                kind = "decimal"
+            else:
+                kind = "text"
+            columns.append({"name": name_column, "data_type": kind})
+        rows = []
+        for row in frame.itertuples(index=False, name=None):
+            values = []
+            for value in row:
+                if hasattr(value, "item") and not isinstance(value, (str, int, float, bool, _df_Decimal)):
+                    value = value.item()
+                if value is None or value is _df_pd.NA or isinstance(value, float) and _df_pd.isna(value):
+                    values.append(None)
+                elif isinstance(value, (str, int, float, bool, _df_Decimal)):
+                    values.append(str(value).lower() if isinstance(value, bool) else str(value))
+                else:
+                    raise ValueError("Published DataFrames must contain scalar values")
+            rows.append(values)
+        item = {"name": name, "columns": columns, "rows": rows}
+        if len(_df_json.dumps(item).encode("utf-8")) > 1024 * 1024:
+            raise ValueError("Published result exceeds the 1 MiB limit")
+        self._publications[name] = item
+        return frame
+    def _export(self):
+        return _df_json.dumps(list(self._publications.values()), ensure_ascii=True)
 dataforge = _DataForgeInputs(''' + repr(payload) + ''')'''
     message_id = client.execute(setup, silent=True, store_history=False, allow_stdin=False)
     deadline = time.monotonic() + 15
@@ -181,9 +228,11 @@ def execute(command):
     size = 0
     count = None
     status = "succeeded"
+    publications = []
     try:
         inputs = list(command.get("inputs", []))
         names = []
+        result_names = []
         try:
             parsed = ast.parse(command["code"])
         except SyntaxError:
@@ -196,11 +245,16 @@ def execute(command):
                     continue
                 if node.args[0].value not in names and not any(item.get("name") == node.args[0].value or item["id"] == node.args[0].value for item in inputs):
                     names.append(node.args[0].value)
-        if names:
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == "dataforge" and node.func.attr == "result":
+                if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+                    raise ValueError("Use a literal published result name in dataforge.result(\"name\")")
+                if node.args[0].value not in result_names:
+                    result_names.append(node.args[0].value)
+        if names or result_names:
             input_ready.clear()
             input_response.clear()
             pending_input_id = command["id"]
-            send({"id": command["id"], "status": "input_request", "names": names})
+            send({"id": command["id"], "status": "input_request", "names": names, "result_names": result_names})
             if not input_ready.wait(30):
                 raise TimeoutError("Dataset input request timed out")
             if input_response.get("error"):
@@ -243,13 +297,29 @@ def execute(command):
             status = "interrupted"
             manager.interrupt_kernel()
             outputs.append({"kind": "error", "text": "Execution exceeded 60 seconds."})
+        if status == "succeeded":
+            export_id = client.execute("", silent=True, store_history=False, allow_stdin=False,
+                                       user_expressions={"published": "dataforge._export()"})
+            export_reply = None
+            export_deadline = time.monotonic() + 15
+            while time.monotonic() < export_deadline:
+                candidate = client.get_shell_msg(timeout=max(0.1, export_deadline - time.monotonic()))
+                if candidate.get("parent_header", {}).get("msg_id") == export_id:
+                    export_reply = candidate
+                    break
+            if export_reply is None or export_reply["content"].get("status") != "ok":
+                raise RuntimeError("Published results could not be read from the kernel")
+            expression = export_reply["content"]["user_expressions"]["published"]
+            if expression.get("status") != "ok":
+                raise RuntimeError("Published results could not be serialized")
+            publications = json.loads(ast.literal_eval(expression["data"]["text/plain"]))
     except Exception as exc:
         status = "failed"
         outputs.append({"kind": "error", "text": str(exc)[:500]})
     finally:
         pending_input_id = None
         running.clear()
-        send({"id": command["id"], "status": status, "count": count, "outputs": outputs})
+        send({"id": command["id"], "status": status, "count": count, "outputs": outputs, "publications": publications})
 
 
 try:

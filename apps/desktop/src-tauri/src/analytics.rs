@@ -109,10 +109,10 @@ pub(super) struct Execution {
     started_at: String, completed_at: Option<String>, status: String,
     result_row_count: Option<u64>, error_summary: Option<String>, duckdb_version: Option<String>, source_fingerprint: String,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct ResultColumn { pub(super) name: String, pub(super) data_type: String }
 #[derive(Debug, Serialize)]
-pub(super) struct AnalyticsResult { execution: Execution, columns: Vec<ResultColumn>, rows: Vec<Vec<Option<String>>>, total_rows: Option<u64>, has_more: bool }
+pub(super) struct AnalyticsResult { pub(super) execution: Execution, columns: Vec<ResultColumn>, pub(super) rows: Vec<Vec<Option<String>>>, total_rows: Option<u64>, pub(super) has_more: bool }
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct PythonTable {
     pub(super) kind: String, pub(super) id: String, pub(super) name: Option<String>, pub(super) columns: Vec<ResultColumn>,
@@ -146,7 +146,7 @@ fn resolve_dataset<'a>(datasets: &'a [crate::Dataset], name: &str) -> Result<&'a
 fn sql_mentions_name(sql: &str, name: &str) -> bool {
     let query = sql.to_lowercase();
     let quoted = format!("\"{}\"", name.replace('"', "\"\"")).to_lowercase();
-    query.contains(&quoted) || (name.starts_with("dataset_") && query.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+    query.contains(&quoted) || (name.bytes().next().is_some_and(|ch|ch.is_ascii_alphabetic()) && name.bytes().all(|ch|ch.is_ascii_alphanumeric() || ch==b'_') && query.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
         .any(|word| word == name.to_lowercase()))
 }
 
@@ -451,7 +451,7 @@ fn read_sql_result(conn: &DuckConnection, sql: &str,
 }
 
 #[derive(Serialize, Deserialize)]
-struct SqlRelation { name: String, table: String, columns: Vec<ColumnDef> }
+struct SqlRelation { name: String, table: String, columns: Vec<ColumnDef>, rows: Option<Vec<Vec<Option<String>>>> }
 #[derive(Serialize, Deserialize)]
 struct SqlWorkerRequest { protocol_version: u32, database: PathBuf, relations: Vec<SqlRelation>, version: String, sql: String }
 #[derive(Serialize, Deserialize)]
@@ -465,7 +465,7 @@ const WORKER_MARKER: &str = "DATAFORGE_SQL_WORKER:";
 pub fn sql_worker_main() -> i32 {
     let response = (|| -> Result<SqlWorkerResponse> {
         let mut input = String::new();
-        std::io::stdin().take(32 * 1024).read_to_string(&mut input).map_err(|_| analytics_error())?;
+        std::io::stdin().take(4 * 1024 * 1024).read_to_string(&mut input).map_err(|_| analytics_error())?;
         let request: SqlWorkerRequest = serde_json::from_str(&input).map_err(|_| analytics_error())?;
         if request.protocol_version != 2 { return Err(analytics_error()); }
         let config = Config::default().access_mode(duckdb::AccessMode::ReadOnly)
@@ -479,11 +479,23 @@ pub fn sql_worker_main() -> i32 {
         }
         let cancelled = AtomicBool::new(false);
         let timed_out = AtomicBool::new(false);
-        if request.relations.len() > 65 { return Err(error("dataset_limit", "SQL can access at most 32 registered datasets in this phase.")); }
+        if request.relations.len() > 96 { return Err(error("dataset_limit", "Too many referenced SQL relations.")); }
         let mut seen = HashSet::new();
-        for relation in &request.relations {
-            validate_representation(&relation.table, &relation.columns)?;
+        let mut temporary = HashSet::new();
+        for (index,relation) in request.relations.iter().enumerate() {
+            if relation.rows.is_none() && !temporary.contains(&relation.table) { validate_representation(&relation.table, &relation.columns)?; }
             if relation.name.is_empty() || relation.name.len() > 255 || !seen.insert(relation.name.to_lowercase()) { return Err(analytics_error()); }
+            let table=if let Some(rows)=&relation.rows {
+                if rows.len()>200 || rows.iter().any(|row|row.len()!=relation.columns.len()) {return Err(analytics_error());}
+                let name=format!("temporary_result_{index}");
+                let fields=relation.columns.iter().map(|column|format!("{} VARCHAR",column.physical)).collect::<Vec<_>>().join(",");
+                conn.execute_batch(&format!("CREATE TEMP TABLE {name} ({fields})")).map_err(|_|error("sql_worker_error","Could not create a temporary result table."))?;
+                let mut appender=conn.appender_to_catalog_and_db(&name,"temp","main").map_err(|_|error("sql_worker_error","Could not open a temporary result table."))?;
+                for row in rows { appender.append_row(appender_params_from_iter(row.iter().map(|value|value.as_ref().map_or(Value::Null,|v|Value::Text(v.clone()))))).map_err(|_|error("sql_worker_error","Could not load named result rows."))?; }
+                appender.flush().map_err(|_|error("sql_worker_error","Could not finish loading named result rows."))?;
+                temporary.insert(name.clone());
+                name
+            } else {relation.table.clone()};
             let projection = relation.columns.iter().map(|column| {
                 let expression = match column.data_type.as_str() {
                     "integer" => format!("TRY_CAST({} AS BIGINT)", column.physical),
@@ -493,7 +505,7 @@ pub fn sql_worker_main() -> i32 {
                 };
                 format!("{expression} AS \"{}\"", column.name.replace('"', "\"\""))
             }).collect::<Vec<_>>().join(",");
-            conn.execute_batch(&format!("CREATE TEMP VIEW \"{}\" AS SELECT {projection} FROM {}", relation.name.replace('"', "\"\""), relation.table))
+            conn.execute_batch(&format!("CREATE TEMP VIEW \"{}\" AS SELECT {projection} FROM {table}", relation.name.replace('"', "\"\"")))
                 .map_err(|_| error("sql_worker_error", "Could not expose the registered dataset to SQL."))?;
         }
         let (columns, rows, has_more) = read_sql_result(&conn, &request.sql,
@@ -526,7 +538,7 @@ fn sql_worker_command() -> Result<Command> {
 fn execute_sql_worker(request: &SqlWorkerRequest, control: &AnalyticsControl, execution_id: &str,
     cancelled: &AtomicBool, timed_out: &AtomicBool, deadline: Instant) -> Result<SqlWorkerResponse> {
     let payload = serde_json::to_vec(request).map_err(|_| analytics_error())?;
-    if payload.len() > 32 * 1024 { return Err(error("invalid_sql", "The SQL request is too large.")); }
+    if payload.len() > 4 * 1024 * 1024 { return Err(error("result_limit", "The referenced SQL tables exceed the 4 MiB transfer limit.")); }
     let mut child = sql_worker_command()?.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn().map_err(|_| error("sql_worker_error", "The SQL worker could not start."))?;
     let stdout = child.stdout.take().ok_or_else(analytics_error)?;
@@ -569,6 +581,10 @@ fn execute_sql_worker(request: &SqlWorkerRequest, control: &AnalyticsControl, ex
 
 pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id: &str, sql: &str,
     control: &AnalyticsControl, execution_id: String) -> Result<AnalyticsResult> {
+    run_notebook_sql_named_inner(project,dataset_id,block_id,sql,None,control,execution_id)
+}
+pub(super) fn run_notebook_sql_named_inner(project: &Path, dataset_id: &str, block_id: &str, sql: &str,
+    result_name: Option<&str>, control: &AnalyticsControl, execution_id: String) -> Result<AnalyticsResult> {
     if sql.len() > 8192 || sql.contains('\0') {
         return Err(error("invalid_sql", "Enter one SELECT query of at most 8 KB."));
     }
@@ -579,6 +595,11 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
     if language != "sql" || saved_sql != sql { return Err(error("invalid_block", "Save the SQL Code cell before running it.")); }
     let available = list_datasets_inner(&metadata)?;
     let names = dataset_names(&available);
+    let referenced_results=crate::named_results::list(project)?.into_iter().filter(|item|item.available &&
+        (item.name.as_deref().is_some_and(|name|sql_mentions_name(sql,name) || sql.split(|ch: char| !ch.is_alphanumeric() && ch != '_').any(|word|word.eq_ignore_ascii_case(name))) || sql_mentions_name(sql,&format!("result_{}",item.id.replace('-',""))))).collect::<Vec<_>>();
+    if referenced_results.iter().any(|result|result.name.as_deref().is_some_and(|name|available.iter().any(|dataset|dataset.name.eq_ignore_ascii_case(name) && sql_mentions_name(sql,name)))) {
+        return Err(error("result_name_conflict","A dataset and result share this name. Use their stable dataset_ or result_ handles."));
+    }
     let legacy_source_allowed = !dataset_id.is_empty() || available.iter().filter(|item|item.status=="ready").count()==1;
     let source_alias = dataset_id.is_empty() && legacy_source_allowed
         && sql.to_lowercase().split(|ch: char| !ch.is_alphanumeric() && ch != '_').any(|word|word=="source");
@@ -588,7 +609,7 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
         names[&item.id].iter().any(|name|sql_mentions_name(sql,name)) || source_alias && item.status=="ready").collect() }
         else { available.into_iter().filter(|item| item.id == dataset_id).collect() };
     if ambiguous && dataset_id.is_empty() { return Err(error("dataset_ambiguous", "Several datasets have that name. Use a stable dataset_<id> handle.")); }
-    if datasets.is_empty() { return Err(error("dataset_missing", "Reference a registered dataset by quoted name or stable dataset_<id> handle. Duplicate names require the stable handle.")); }
+    if datasets.is_empty() && referenced_results.is_empty() { return Err(error("dataset_missing", "Reference a registered dataset or named result.")); }
     if datasets.len() > 32 { return Err(error("dataset_limit", "SQL can access at most 32 registered datasets in this phase.")); }
     if datasets.iter().any(|item| item.status != "ready") {
         return Err(error("dataset_unavailable", "A registered dataset is missing or changed. Review it before running SQL."));
@@ -603,10 +624,12 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
     let deadline = Instant::now() + QUERY_DEADLINE;
     let project_id: String = metadata.query_row("SELECT id FROM project LIMIT 1", [], |r| r.get(0)).map_err(|_| analytics_error())?;
     let input_ids: Vec<_> = datasets.iter().map(|item| serde_json::json!({"dataset_id":item.id,"source_fingerprint":item.fingerprint,"names":names[&item.id]})).collect();
-    let mut parameters = serde_json::json!({"version":2,"sql":sql,"code_block_id":block_id,"inputs":input_ids,"limit":200}).to_string();
+    let publication_name=result_name.filter(|name|!name.is_empty()).map(str::to_string)
+        .unwrap_or_else(||format!("cell_{}",block_id.replace('-',"")));
+    let mut parameters = serde_json::json!({"version":3,"sql":sql,"code_block_id":block_id,"inputs":input_ids,"result_name":publication_name,"limit":200}).to_string();
     let started_at = now();
     metadata.execute("INSERT INTO executions (id,project_id,dataset_id,source_fingerprint,operation_type,parameters,started_at,status,schema_version)
-        VALUES (?1,?2,?3,?4,'sql',?5,?6,'running',2)", params![execution_id,project_id,datasets[0].id,datasets[0].fingerprint,parameters,started_at])
+        VALUES (?1,?2,?3,?4,'sql',?5,?6,'running',2)", params![execution_id,project_id,datasets.first().map_or("",|d|d.id.as_str()),datasets.first().map_or("",|d|d.fingerprint.as_str()),parameters,started_at])
         .map_err(|_| analytics_error())?;
     let work = (|| {
         let statement = sql.trim().trim_end_matches(';');
@@ -630,15 +653,29 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
         let _ = stop.send(());
         let _ = timer.join();
         let materialized = materialized?;
-        let (representation_id, _, _, version) = &materialized[0];
+        let version=conn.version().map_err(|_|analytics_error())?;
+        let representation_id=materialized.first().map_or("",|item|item.0.as_str());
         let pinned: Vec<_> = datasets.iter().zip(&materialized).map(|(item,(id,_,_,engine))|
             serde_json::json!({"dataset_id":item.id,"source_fingerprint":item.fingerprint,"representation_id":id,"duckdb_version":engine,"names":names[&item.id]})).collect();
-        parameters = serde_json::json!({"version":2,"sql":sql,"code_block_id":block_id,"inputs":pinned,"limit":200}).to_string();
+        let mut result_inputs=Vec::new();
+        for item in &referenced_results {
+            let stable=format!("result_{}",item.id.replace('-',""));
+            let (_,table)=crate::named_results::resolve(&metadata,item.name.as_deref().unwrap_or(&stable))?;
+            result_inputs.push((item.clone(),table));
+        }
+        let result_provenance:Vec<_>=result_inputs.iter().map(|(item,_)|serde_json::json!({"result_id":item.id,"execution_id":item.execution_id,"name":item.name})).collect();
+        parameters = serde_json::json!({"version":3,"sql":sql,"code_block_id":block_id,"inputs":pinned,"result_inputs":result_provenance,"result_name":publication_name,"limit":200}).to_string();
         let mut relations = Vec::new();
         for (dataset, (_, table, columns, _)) in datasets.iter().zip(&materialized) {
-            for name in &names[&dataset.id] { relations.push(SqlRelation { name:name.clone(),table:table.clone(),columns:columns.clone() }); }
+            for name in &names[&dataset.id] { relations.push(SqlRelation { name:name.clone(),table:table.clone(),columns:columns.clone(),rows:None }); }
         }
-        if datasets.len() == 1 && legacy_source_allowed { relations.push(SqlRelation { name:"source".into(),table:materialized[0].1.clone(),columns:materialized[0].2.clone() }); }
+        if datasets.len() == 1 && legacy_source_allowed { relations.push(SqlRelation { name:"source".into(),table:materialized[0].1.clone(),columns:materialized[0].2.clone(),rows:None }); }
+        for (item,table) in result_inputs {
+            let columns=table.columns.into_iter().enumerate().map(|(index,c)|ColumnDef{name:c.name,data_type:c.data_type,physical:format!("c{index}")}).collect::<Vec<_>>();
+            let table_name=format!("temporary_result_{}",relations.len());
+            relations.push(SqlRelation{name:format!("result_{}",item.id.replace('-',"")),table:String::new(),columns:columns.clone(),rows:Some(table.rows)});
+            if let Some(name)=item.name { relations.push(SqlRelation{name,table:table_name,columns,rows:None}); }
+        }
         control.clear_interrupt(&execution_id)?;
         drop(conn);
         check(&cancelled,&timed_out,deadline)?;
@@ -653,9 +690,14 @@ pub(super) fn run_notebook_sql_inner(project: &Path, dataset_id: &str, block_id:
         let completed_at = now();
         metadata.execute("UPDATE executions SET representation_id=?1,completed_at=?2,status='succeeded',result_row_count=?3,duckdb_version=?4 WHERE id=?5",
             params![representation_id,completed_at,response.rows.len() as i64,version,execution_id]).map_err(|_| analytics_error())?;
-        Ok(AnalyticsResult { execution:Execution { id:execution_id.clone(),dataset_id:datasets[0].id.clone(),operation_type:"sql".into(),
+        if !response.has_more {
+            let table=crate::named_results::Table{columns:response.columns.clone(),rows:response.rows.clone()};
+            let hash:String=metadata.query_row("SELECT payload_hash FROM code_execution_outputs WHERE execution_id=?1",[&execution_id],|r|r.get(0)).map_err(|_|analytics_error())?;
+            crate::named_results::publish(&metadata,&publication_name,&execution_id,&table,Some(&hash))?;
+        }
+        Ok(AnalyticsResult { execution:Execution { id:execution_id.clone(),dataset_id:datasets.first().map_or(String::new(),|d|d.id.clone()),operation_type:"sql".into(),
             parameters:parameters.clone(),started_at:started_at.clone(),completed_at:Some(completed_at),status:"succeeded".into(),
-            result_row_count:Some(response.rows.len() as u64),error_summary:None,duckdb_version:Some(version.clone()),source_fingerprint:datasets[0].fingerprint.clone() },
+            result_row_count:Some(response.rows.len() as u64),error_summary:None,duckdb_version:Some(version.clone()),source_fingerprint:datasets.first().map_or(String::new(),|d|d.fingerprint.clone()) },
             columns:response.columns,rows:response.rows,total_rows:None,has_more:response.has_more })
     })().or_else(|failure| {
         if timed_out.load(Ordering::Relaxed) { Err(error("timeout", "The SQL query exceeded the 30-second limit.")) }

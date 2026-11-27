@@ -60,6 +60,7 @@ fn referenced_blobs(conn: &Connection) -> Result<HashSet<String>> {
         let exists:i64=conn.query_row("SELECT COUNT(*) FROM code_output_blobs WHERE hash=?1",[hash],|r|r.get(0)).map_err(|_|storage_error())?;
         if exists==0 { return Err(error("damaged_output","A referenced Code image is missing.")); }
     }
+    crate::named_results::referenced_hashes(conn,&mut keep)?;
     Ok(keep)
 }
 
