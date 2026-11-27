@@ -1,7 +1,13 @@
 # DataForge progress
 
 **Updated:** 2026-11-27
-**Current state:** The local CSV, typed DuckDB analytics, and explicit trusted-user Notebook SQL/Python slices are implemented. Notebook Code cells can access multiple registered datasets and published bounded results by name. The Notebook right sidebar now exposes the host catalog as a Data Explorer. Full Milestone 1 and autonomous code execution remain incomplete.
+**Current state:** The local CSV, typed DuckDB analytics, and explicit trusted-user Notebook SQL/Python slices are implemented. Notebook Code cells can access multiple registered datasets and published bounded results by name. The Notebook left Sources rail has one Session Results drop-up and compact search. Full Milestone 1 and autonomous code execution remain incomplete.
+
+## Notebook sidebar consolidation (2026-11-27)
+
+Per native UI feedback, Notebook no longer displays a right Data Explorer inspector. The resizable Sources rail retains its refresh and register glyphs, gains a compact search control, and removes the duplicate Add CSV footer. One Session Results row immediately above the rail footer opens a shared Base UI popover upward. It combines current and persisted named results from the existing host registry, including historical and unavailable records. Search filters source names and results; the menu retains known complete row counts, type summaries, provenance, copyable SQL/Python references, and confirmed release. Chat and Dashboard do not show this menu. The central Notebook canvas regains the width formerly occupied by the right inspector. No storage or execution contract changed.
+
+**Verification:** `node tests/notebook-session-results.cjs` passed reference, status, search, rendered item, and left-rail structure checks. `node tests/notebook-sql.cjs` passed SQL/Python output rendering regressions. `npm.cmd run tauri:build` passed design/form checks, TypeScript, Vite, and Rust release compilation; `git diff --check` passed. The rebuilt `apps/desktop/src-tauri/target/release/dataforge.exe` is 39,564,288 bytes with SHA-256 `DB1155DEB3AA0F7F63E2A45016A9305EE307F73AE51810DDC5438A22B7861A42`. Native WebView2 interaction and visual alignment against the supplied screenshots remain unchecked; the executable is ready for that pass.
 
 ## Notebook blank-screen regression fix (2026-11-27)
 

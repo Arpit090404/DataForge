@@ -171,13 +171,12 @@ function ResultBlock({ executionId, execution: historyExecution, sources, initia
   </div>;
 }
 
-export default function NotebookWorkspace({ active, onDirtyChange, onResultsChange, onNotebookChange, projectId, projectName, sources }: { active: boolean; onDirtyChange: (dirty: boolean) => void; onResultsChange: () => void; onNotebookChange: (id: string | null) => void; projectId: string; projectName?: string; sources: Source[] }) {
+export default function NotebookWorkspace({ active, onDirtyChange, onResultsChange, projectId, projectName, sources }: { active: boolean; onDirtyChange: (dirty: boolean) => void; onResultsChange: () => void; projectId: string; projectName?: string; sources: Source[] }) {
   const pythonPreferenceKey = `dataforge.notebook.python:${projectId}`;
   const [notebooks, setNotebooks] = useState<Summary[]>([]);
   const [listStatus, setListStatus] = useState<'loading' | 'retrying' | 'ready' | 'error'>('loading');
   const [listError, setListError] = useState('');
   const [notebook, setNotebook] = useState<Notebook | null>(null);
-  useEffect(() => { onNotebookChange(notebook?.id ?? null); }, [notebook?.id, onNotebookChange]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [languages, setLanguages] = useState<Record<string, 'python' | 'sql'>>({});
   const [search, setSearch] = useState('');
